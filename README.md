@@ -5,7 +5,7 @@ native ESPHome API.  Designed as an
 [OpenClaw](https://github.com/nicholasgriffintn/openclaw) skill for
 voice/chat-driven home automation.
 
-**Version:** 0.0.4
+**Version:** 0.0.5
 
 ## Overview
 
@@ -34,11 +34,12 @@ CLI client  —(Unix socket)—>  Daemon  —(persistent ESPHome API connections
 
 ## Requirements
 
-- **Python 3.11** (recommended).  Python 3.13 is now supported upstream by
-  `aioesphomeapi` v44.0.0+ (Feb 2026) with pre-built wheels.  Earlier versions
-  failed on 3.13 with a Cython/noise-module incompatibility.  The project
-  currently targets 3.11 on the Luckfox Pico; upgrading is feasible but untested.
-- **`aioesphomeapi`** — installed in the Python 3.11 virtual environment
+- **Python 3.11 or 3.13** — both confirmed working with `aioesphomeapi` 44.0.0.
+  > **Gotcha:** `noise` 1.2.2 (Perlin noise) and `noiseprotocol` both install
+  > into the same `noise/` directory.  If you ever `pip uninstall noise`, run
+  > `pip install --force-reinstall noiseprotocol` immediately after to restore
+  > the directory that `aioesphomeapi` needs.
+- **`aioesphomeapi`** — install via pip
 - ESPHome devices with the native API enabled and encryption keys configured
 
 ## Installation

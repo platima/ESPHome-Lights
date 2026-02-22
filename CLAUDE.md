@@ -32,12 +32,16 @@ CLI client  —(Unix socket)—>  Daemon  —(persistent ESPHome API connections
 - **WSL2:** Debian instance available for Linux-native tooling
 - **Terminals:** PowerShell in VS Code; Debian WSL2 accessible if needed
 - **Deployment target:** Luckfox Pico (ARM Linux SBC), resource-constrained
-- **Python interpreter:** `/home/luckfox/venv/bin/python` (Python 3.11)
-  - System Python is 3.13.  As of `aioesphomeapi` v44.0.0 (Feb 2026),
-    Python 3.13 is officially supported with pre-built wheels.  Earlier
-    versions had a Cython/noise-module incompatibility on 3.13.  If the
-    target venv is upgraded to v44.0.0+, system Python 3.13 may be usable.
-    Until confirmed on the Luckfox Pico, continue using the 3.11 venv.
+- **Python interpreter:** System Python 3.13 confirmed working on the Luckfox
+  Pico with `aioesphomeapi` 44.0.0.  The legacy 3.11 venv is no longer required.
+  - **Install `noiseprotocol` in user space** — both `noise` 1.2.2 (Perlin
+    noise) and `noiseprotocol` install into the same `noise/` directory.
+    Uninstalling `noise` 1.2.2 deletes that directory, silently breaking
+    `noiseprotocol`.  Fix: `python3.13 -m pip install --force-reinstall noiseprotocol`.
+  - The Cython-compiled `.so` files in the pre-built wheel still resolve
+    `import noise` at runtime via Python's normal import system — there is no
+    static linking.  If the `noise/` directory is missing from `sys.path`, the
+    import fails with `ModuleNotFoundError: No module named 'noise'`.
 
 ## Tech Stack
 
@@ -236,7 +240,7 @@ Ensure `ESPHOME_LIGHTS_*` env vars are available to the agent.
 
 ## Current State
 
-- **Version:** 0.0.4
+- **Version:** 0.0.5
 - **Status:** Working monolithic CLI script; daemon refactor planned.
 - The monolithic script works correctly but has a ~4.2 s per-invocation cost
   due to heavy imports and per-call connection setup.
@@ -249,10 +253,6 @@ Ensure `ESPHOME_LIGHTS_*` env vars are available to the agent.
   (Noise protocol handshake), sends one command, and disconnects.
 - **`--status` is slow:** Queries every device sequentially-ish per call;
   no state caching.
-- **Python 3.13 — now supported upstream:** `aioesphomeapi` v44.0.0
-  (Feb 2026) ships pre-built wheels for CPython 3.13 (and 3.14).  Earlier
-  versions failed on Python 3.13 with `ModuleNotFoundError: No module named
-  'noise'` from the Cython-compiled `noise_encryption` extension.  The fix
-  was incremental across multiple releases throughout 2025.  The project
-  currently uses the Python 3.11 venv on the Luckfox Pico; upgrading to
-  3.13 is now feasible but untested on the target hardware.
+- **Python 3.13 confirmed working** on the Luckfox Pico with
+  `aioesphomeapi` 44.0.0.  The Python 3.11 venv is no longer needed.
+  See the Dev Environment section for the `noiseprotocol` gotcha.

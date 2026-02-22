@@ -110,9 +110,6 @@ and thin CLI client to eliminate ~4.2 s cold-start latency per invocation.
 
 ## Future / Nice to Have
 
-- [ ] Test `aioesphomeapi` v44.0.0+ on Python 3.13 on the Luckfox Pico.
-      Upstream now ships pre-built wheels for 3.13 (and 3.14).  If confirmed
-      working, the project can drop the 3.11 venv requirement.
 - [ ] Evaluate Python 3.14 free-threaded support for async performance gains.
 
 ---
@@ -128,3 +125,5 @@ and thin CLI client to eliminate ~4.2 s cold-start latency per invocation.
 - [x] Research `aioesphomeapi` Python 3.13 compatibility — resolved upstream
       in v44.0.0 (Feb 2026); update docs accordingly
 - [x] Document Python 3.13 incompatibility root cause (Cython noise_encryption)
+- [x] Confirm Python 3.13 working on Luckfox Pico — fix: `pip install
+      --force-reinstall noiseprotocol` after any `pip uninstall noise`
