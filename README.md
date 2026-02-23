@@ -5,7 +5,7 @@ native ESPHome API.  Designed as an
 [OpenClaw](https://github.com/nicholasgriffintn/openclaw) skill for
 voice/chat-driven home automation.
 
-**Version:** 0.0.5
+**Version:** 0.1.0
 
 ## Overview
 
@@ -13,24 +13,24 @@ ESPHome Lights lets you turn lights on/off, set brightness, and set RGB
 colours from the command line.  Devices are discovered from environment
 variables — no config files to manage.
 
-The project is being refactored from a single monolithic script into a
-**persistent daemon + thin CLI client** architecture to eliminate the ~4.2 s
-cold-start latency caused by importing ~295 Python modules (aioesphomeapi,
-protobuf, cryptography) and performing the Noise protocol handshake on every
-invocation.
+The project uses a **persistent daemon + thin CLI client** architecture.  The
+daemon keeps ESPHome API connections alive, eliminating the ~4.2 s cold-start
+latency of the old monolithic script.  The CLI client uses only Python stdlib
+for fast startup and communicates with the daemon over a Unix domain socket.
 
-### Target Architecture
+### Architecture
 
 ```
 CLI client  —(Unix socket)—>  Daemon  —(persistent ESPHome API connections)—>  Devices
 ```
 
-| Component              | File                    | Purpose                              |
-|------------------------|-------------------------|--------------------------------------|
-| Daemon                 | `esphome-lightsd.py`    | Persistent connections, state cache  |
-| CLI client             | `esphome-lights.py`     | Thin stdlib-only client, fast start  |
-| systemd unit           | `esphome-lightsd.service` | Auto-start on boot               |
-| OpenClaw skill         | `SKILL.md`              | Chat-driven control via OpenClaw     |
+| Component              | File                      | Purpose                              |
+|------------------------|---------------------------|--------------------------------------|
+| Daemon                 | `esphome-lightsd.py`      | Persistent connections, state cache  |
+| CLI client             | `esphome-lights.py`       | Thin stdlib-only client, fast start  |
+| systemd unit           | `esphome-lightsd.service` | Auto-start on boot                   |
+| Tests                  | `tests/`                  | Unit tests (49 tests)                |
+| OpenClaw skill         | `SKILL.md`                | Chat-driven control via OpenClaw     |
 
 ## Requirements
 
@@ -78,13 +78,24 @@ ESPHOME_LIGHTS_BEDROOM="10.42.40.56:6053|another_key_here"
 
 ## Usage
 
-### Current (Monolithic Script)
+### Starting the Daemon
+
+The daemon must be running before CLI commands will work:
 
 ```bash
-# List configured lights
+# Start the daemon (foreground)
+python3 esphome-lightsd.py
+
+# Or install as a systemd service (see systemd section below)
+```
+
+### CLI Commands
+
+```bash
+# List configured lights (shows connection state)
 esphome-lights.py --list
 
-# Show on/off state of all lights
+# Show on/off state of all lights (from daemon cache — instant)
 esphome-lights.py --status
 
 # Turn a light on or off
@@ -96,23 +107,17 @@ esphome-lights.py --set living_room --brightness 128
 
 # Set RGB colour (r,g,b — each 0–255)
 esphome-lights.py --set living_room --rgb 255,0,0
+
+# Health check
+esphome-lights.py --ping
 ```
 
 ### Flags
 
-| Flag                   | Effect                                      |
-|------------------------|---------------------------------------------|
-| `--bg`, `--background` | Fire and forget — return immediately        |
-| `--debug`              | Wait for completion, show detailed results  |
-
-### Planned (Daemon Mode)
-
-Once the daemon refactor is complete, the CLI interface stays the same but
-commands respond in under 100 ms.  An additional health check is available:
-
-```bash
-esphome-lights.py --ping    # Returns "pong" if daemon is running
-```
+| Flag                   | Effect                                          |
+|------------------------|-------------------------------------------------|
+| `--bg`, `--background` | Fire and forget — return immediately            |
+| `--debug`              | Show full JSON response (overrides `--bg`)      |
 
 ## Entity Handling
 
@@ -121,7 +126,7 @@ esphome-lights.py --ping    # Returns "pong" if daemon is running
 - Always skips entities with `object_id == 'status_led'`.
 - Brightness and RGB commands return errors for switch-type entities.
 
-## Daemon Architecture (Planned)
+## Daemon Architecture
 
 ### Protocol
 
@@ -148,6 +153,16 @@ newline-delimited JSON.
 {"ok": true, "result": "pong"}
 ```
 
+### Daemon Features
+
+- **Persistent connections** to all configured ESPHome devices
+- **Automatic reconnection** with exponential backoff (1 s → 30 s max)
+- **State caching** — `--status` returns instantly from cache
+- **Multiple concurrent clients** supported
+- **Graceful shutdown** on SIGTERM/SIGINT (cleans up socket file)
+- **Stale socket detection** — removes orphaned socket files on startup
+- **Configurable logging** via `ESPHOME_LIGHTS_LOG_LEVEL` env var
+
 ### systemd
 
 A systemd unit file (`esphome-lightsd.service`) is provided for auto-starting
@@ -157,6 +172,12 @@ the daemon on boot:
 sudo cp esphome-lightsd.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now esphome-lightsd
+```
+
+To check daemon status:
+```bash
+sudo systemctl status esphome-lightsd
+sudo journalctl -u esphome-lightsd -f
 ```
 
 ### Performance Targets
@@ -224,19 +245,31 @@ This project is designed to run on a **Luckfox Pico** (ARM Linux SBC) — a
 resource-constrained device.  The daemon architecture is deliberately kept
 simple with no heavy frameworks.
 
+## Running Tests
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+49 tests covering daemon command handlers, socket protocol, entity resolution,
+state caching, and client-daemon integration.
+
 ## File Structure
 
 ```
 ESPHome-Python/
-├── esphome-lights.py           # CLI client (currently monolithic; being refactored)
-├── esphome-lightsd.py          # Daemon (planned)
-├── esphome-lightsd.service     # systemd unit (planned)
+├── esphome-lights.py           # Thin CLI client (stdlib only)
+├── esphome-lightsd.py          # Daemon (persistent connections + socket)
+├── esphome-lightsd.service     # systemd unit file
+├── tests/
+│   ├── test_daemon.py          # Daemon unit tests (37 tests)
+│   └── test_client.py          # Client unit + integration tests (12 tests)
 ├── SKILL.md                    # OpenClaw skill definition
 ├── CLAUDE.md                   # AI assistant context
 ├── TODO.md                     # Persistent task tracker
 ├── README.md                   # This file
 ├── VERSION                     # Semantic version string
-└── cpython.txt                 # cProfile output (cold-start analysis)
+└── cpython.txt                 # cProfile output (old monolithic script)
 ```
 
 ## Licence

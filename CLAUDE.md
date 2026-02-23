@@ -6,16 +6,14 @@ understands the project without re-discovering everything.
 
 ## Project Overview
 
-**ESPHome Lights** — A Python CLI tool (and soon daemon) for controlling
+**ESPHome Lights** — A Python daemon + thin CLI client for controlling
 ESPHome smart lights and switches via the native ESPHome API.
 
-The current single-script design (`esphome-lights.py`) suffers from ~4.2 s
-cold-start latency per invocation (importing ~295 modules including
-`aioesphomeapi`, protobuf, cryptography, plus the Noise protocol handshake).
-The project is being refactored into a **persistent daemon + thin CLI client**
-architecture to achieve sub-100 ms command response times.
+The project uses a **persistent daemon + thin CLI client** architecture to
+achieve sub-100 ms command response times (previously ~4.2 s per invocation
+with the monolithic script).
 
-### Target Architecture
+### Architecture
 
 ```
 CLI client  —(Unix socket)—>  Daemon  —(persistent ESPHome API connections)—>  Devices
@@ -47,7 +45,7 @@ CLI client  —(Unix socket)—>  Daemon  —(persistent ESPHome API connections
 
 | Component            | Detail                                         |
 |----------------------|------------------------------------------------|
-| Language             | Python 3.11                                    |
+| Language             | Python 3.11 / 3.13                             |
 | Async framework      | `asyncio` (stdlib)                             |
 | ESPHome comms        | `aioesphomeapi` (Noise protocol, protobuf)     |
 | IPC                  | Unix domain socket, newline-delimited JSON     |
@@ -58,16 +56,17 @@ CLI client  —(Unix socket)—>  Daemon  —(persistent ESPHome API connections
 
 | File                        | Purpose                                              |
 |-----------------------------|------------------------------------------------------|
-| `esphome-lights.py`         | CLI client (currently monolithic; being refactored)  |
-| `esphome-lightsd.py`        | Daemon (planned — persistent connections + socket)   |
-| `esphome-lightsd.service`   | systemd unit file (planned)                          |
+| `esphome-lights.py`         | Thin CLI client (stdlib only, fast startup)          |
+| `esphome-lightsd.py`        | Daemon (persistent connections + Unix socket)        |
+| `esphome-lightsd.service`   | systemd unit file for auto-starting the daemon       |
+| `tests/`                    | Unit tests (test_daemon.py, test_client.py)          |
 | `SKILL.md`                  | OpenClaw skill definition for chat-driven control    |
 | `.env`                      | Device config (one level up from script directory)   |
 | `CLAUDE.md`                 | AI assistant context (this file)                     |
 | `TODO.md`                   | Persistent task tracker across sessions              |
 | `README.md`                 | User-facing documentation                            |
 | `VERSION`                   | Semantic version string                              |
-| `cpython.txt`               | cProfile output showing the 4.2 s cold-start cost   |
+| `cpython.txt`               | cProfile output from the old monolithic script       |
 
 ## Device Configuration
 
@@ -166,15 +165,23 @@ them silently — each must be visible in the plan.
 ## Build & Test
 
 - **No build step** — pure Python, interpreted.
-- **Virtual environment:** `/home/luckfox/venv/` (Python 3.11) on the target.
-- **Dependencies:** `aioesphomeapi` (installed in the venv).
-- **Running the current script:**
+- **Dependencies:** `aioesphomeapi` (daemon only; CLI client is stdlib-only).
+- **Running the daemon:**
   ```bash
-  /home/luckfox/venv/bin/python esphome-lights.py --list
+  python3 esphome-lightsd.py
   ```
-- **Profiling:** `cpython.txt` contains cProfile output for cold-start analysis.
+- **Running CLI commands:**
+  ```bash
+  python3 esphome-lights.py --list
+  ```
+- **Running tests:**
+  ```bash
+  python3 -m unittest discover -s tests -v
+  ```
+- **Profiling:** `cpython.txt` contains cProfile output from the old
+  monolithic script for reference.
 
-## Daemon Protocol (Planned)
+## Daemon Protocol
 
 Unix socket at `/tmp/esphome-lights.sock` (configurable via
 `ESPHOME_LIGHTS_SOCKET` env var). Newline-delimited JSON.
@@ -240,19 +247,20 @@ Ensure `ESPHOME_LIGHTS_*` env vars are available to the agent.
 
 ## Current State
 
-- **Version:** 0.0.5
-- **Status:** Working monolithic CLI script; daemon refactor planned.
-- The monolithic script works correctly but has a ~4.2 s per-invocation cost
-  due to heavy imports and per-call connection setup.
+- **Version:** 0.1.0
+- **Status:** Daemon + thin CLI client architecture implemented.
+- The daemon (`esphome-lightsd.py`) maintains persistent connections and
+  serves commands via a Unix domain socket.
+- The CLI client (`esphome-lights.py`) uses only stdlib for sub-100 ms startup.
+- systemd unit file provided for auto-starting on boot.
+- 49 unit tests covering daemon handlers, socket protocol, entity resolution,
+  state caching, and client-daemon integration.
 
 ## Known Limitations
 
-- **Cold-start latency:** ~4.2 s per command invocation (the entire reason
-  for the daemon refactor).
-- **No persistent connections:** Each invocation connects, authenticates
-  (Noise protocol handshake), sends one command, and disconnects.
-- **`--status` is slow:** Queries every device sequentially-ish per call;
-  no state caching.
+- **Performance not yet benchmarked** on the Luckfox Pico target hardware.
+  Daemon architecture should achieve the sub-100 ms target but needs
+  real-world validation.
 - **Python 3.13 confirmed working** on the Luckfox Pico with
-  `aioesphomeapi` 44.0.0.  The Python 3.11 venv is no longer needed.
-  See the Dev Environment section for the `noiseprotocol` gotcha.
+  `aioesphomeapi` 44.0.0.  See the Dev Environment section for the
+  `noiseprotocol` gotcha.
