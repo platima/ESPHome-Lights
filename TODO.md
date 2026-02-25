@@ -1,0 +1,85 @@
+# TODO.md — Persistent Task Tracker
+
+This file is the persistent plan across sessions.  If a session is lost, the
+next session picks up from here.
+
+---
+
+## Phase 2: OpenClaw Skill Integration
+
+- [ ] Create `SKILL.md` for OpenClaw skill registration
+- [ ] Test skill loading via OpenClaw agent
+- [ ] Document OpenClaw integration in README
+
+---
+
+## Performance Targets
+
+| Metric                  | Old (monolithic) | Target    |
+|-------------------------|------------------|-----------|
+| `--set` command (cold)  | ~4.2 s           | < 100 ms  |
+| `--status` (all devices)| ~5–8 s           | < 50 ms   |
+| `--list`                | ~1.5 s           | < 50 ms   |
+| CLI client startup      | ~1.5 s           | < 30 ms   |
+
+---
+
+## Future / Nice to Have
+
+- [ ] Benchmark daemon performance on the Luckfox Pico target hardware.
+- [ ] Evaluate Python 3.14 free-threaded support for async performance gains.
+
+---
+
+## Completed
+
+### Phase 0: Foundation
+
+- [x] Initial monolithic `esphome-lights.py` (working)
+- [x] Create CLAUDE.md with full project context
+- [x] Review daemon implementation plan
+- [x] Create TODO.md (this file)
+- [x] Create README.md
+- [x] Create OpenClaw SKILL.md
+- [x] Research `aioesphomeapi` Python 3.13 compatibility — resolved upstream
+      in v44.0.0 (Feb 2026); update docs accordingly
+- [x] Document Python 3.13 incompatibility root cause (Cython noise_encryption)
+- [x] Confirm Python 3.13 working on Luckfox Pico — fix: `pip install
+      --force-reinstall noiseprotocol` after any `pip uninstall noise`
+
+### Phase 1: Daemon + CLI Refactor (v0.1.0)
+
+- [x] Scaffold `esphome-lightsd.py` with shebang and docstring
+- [x] Implement `.env` loading (same logic as current script)
+- [x] Implement `load_devices()` from `ESPHOME_LIGHTS_*` env vars
+- [x] Create Unix socket listener (`/tmp/esphome-lights.sock`, configurable
+      via `ESPHOME_LIGHTS_SOCKET` env var, permissions `0o660`)
+- [x] Handle stale socket file on startup (check and remove before `bind()`)
+- [x] Establish persistent `aioesphomeapi` connections to all devices on startup
+      (concurrent via `asyncio.gather()`)
+- [x] Implement automatic reconnection with exponential backoff
+      (1 s, 2 s, 4 s, 8 s, max 30 s)
+- [x] Track per-device connection state (connected / connecting / disconnected)
+- [x] Subscribe to entity state changes on each connection
+- [x] Maintain in-memory state cache
+      (`{device: {state, brightness, rgb, entity_type}}`)
+- [x] Implement JSON command handler for all commands:
+  - [x] `list` — return configured devices
+  - [x] `status` — return cached state for all devices
+  - [x] `set` with actions: `on`, `off`, `brightness`, `rgb`
+  - [x] `ping` — health check (return `pong`)
+- [x] Handle multiple concurrent client connections
+- [x] Implement graceful shutdown (SIGTERM, SIGINT): disconnect clients,
+      remove socket file
+- [x] Error handling: unreachable devices on startup, disconnected device
+      commands, client socket errors
+- [x] Entity handling: prefer `LightInfo` over `SwitchInfo`, skip `status_led`,
+      reject brightness/RGB for switch entities
+- [x] Rewrite CLI as thin stdlib-only client (`socket`, `json`, `sys`, `argparse`)
+- [x] Preserve existing CLI interface: `--list`, `--status`, `--set`,
+      `--on/--off/--brightness/--rgb`, `--bg`, `--debug`, `--ping`
+- [x] Create `esphome-lightsd.service` systemd unit file
+- [x] Create unit tests (49 tests: daemon handlers, socket protocol,
+      entity resolution, state caching, client-daemon integration)
+- [x] Update README.md, CLAUDE.md, TODO.md
+- [x] Bump VERSION to 0.1.0
