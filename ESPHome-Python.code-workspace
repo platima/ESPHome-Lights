@@ -4,5 +4,16 @@
 			"path": "."
 		}
 	],
-	"settings": {}
+	"settings": {
+		"chat.tools.terminal.autoApprove": {
+			"/^python -m pytest tests/ -v 2>&1 \\| Select-Object -First 80$/": {
+				"approve": true,
+				"matchCommandLine": true
+			},
+			"/^python -m unittest discover -s tests -v 2>&1 \\| Select-Object -First 100$/": {
+				"approve": true,
+				"matchCommandLine": true
+			}
+		}
+	}
 }
