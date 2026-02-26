@@ -1,8 +1,10 @@
-# ESPHome Lights
+<img align="right" src="https://visitor-badge.laobi.icu/badge?page_id=platima.mlbenchmark" height="20" />
+
+# ESPHome Lights for Python / OpenClaw
 
 A Python CLI tool for controlling ESPHome smart lights and switches via the
 native ESPHome API.  Designed as an
-[OpenClaw](https://github.com/nicholasgriffintn/openclaw) skill for
+[OpenClaw]([https://github.com/nicholasgriffintn/openclaw](https://github.com/openclaw/openclaw)) skill for
 voice/chat-driven home automation.
 
 **Version:** 0.1.0
@@ -11,12 +13,12 @@ voice/chat-driven home automation.
 
 ESPHome Lights lets you turn lights on/off, set brightness, and set RGB
 colours from the command line.  Devices are discovered from environment
-variables — no config files to manage.
+variables; no separate config files to manage.
 
 The project uses a **persistent daemon + thin CLI client** architecture.  The
 daemon keeps ESPHome API connections alive, eliminating the ~4.2 s cold-start
-latency of the old monolithic script.  The CLI client uses only Python stdlib
-for fast startup and communicates with the daemon over a Unix domain socket.
+latency of a monolithic script.  The CLI client uses only Python stdlib for
+fast startup and communicates with the daemon over a Unix domain socket.
 
 ### Architecture
 
