@@ -1,10 +1,10 @@
-<img align="right" src="https://visitor-badge.laobi.icu/badge?page_id=platima.mlbenchmark" height="20" />
+<img align="right" src="https://visitor-badge.laobi.icu/badge?page_id=platima.esphome-python" height="20" />
 
 # ESPHome Lights for Python / OpenClaw
 
 A Python CLI tool for controlling ESPHome smart lights and switches via the
 native ESPHome API, designed as an
-[OpenClaw](https://github.com/nicholasgriffintn/openclaw) skill for
+[OpenClaw](https://github.com/openclaw/openclaw) skill for
 voice/chat-driven home automation.
 
 **Version:** 0.1.0
@@ -193,7 +193,7 @@ sudo journalctl -u esphome-lightsd -f
 
 ## OpenClaw Integration
 
-ESPHome Lights is designed as an [OpenClaw](https://github.com/nicholasgriffintn/openclaw)
+ESPHome Lights is designed as an [OpenClaw](https://github.com/openclaw/openclaw)
 skill, enabling chat-driven smart home control from any messaging platform
 (WhatsApp, Telegram, Discord, Slack, etc.).
 

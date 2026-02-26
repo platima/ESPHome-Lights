@@ -204,7 +204,7 @@ Unix socket at `/tmp/esphome-lights.sock` (configurable via
 
 ## OpenClaw Integration
 
-This project is designed as an [OpenClaw](https://github.com/nicholasgriffintn/openclaw)
+This project is designed as an [OpenClaw](https://github.com/openclaw/openclaw)
 skill.  OpenClaw is a self-hosted AI gateway that bridges messaging platforms
 (WhatsApp, Telegram, Discord, Slack, etc.) with AI agents.
 
