@@ -281,9 +281,9 @@ if [[ -d "$VENV_DIR" ]]; then
     ok "Python 3.11 venv exists: $VENV_DIR"
 else
     info "Creating Python 3.11 venv at $VENV_DIR ..."
-    if "$PYTHON311" -m venv --upgrade-deps "$VENV_DIR" 2>/dev/null; then
+    if "$PYTHON311" -m venv --upgrade-deps "$VENV_DIR" > /dev/null 2>&1; then
         ok "Venv created."
-    elif "$PYTHON311" -m venv --without-pip "$VENV_DIR" 2>/dev/null; then
+    elif "$PYTHON311" -m venv --without-pip "$VENV_DIR" > /dev/null 2>&1; then
         # ensurepip is stripped on this system (Debian without python3.11-venv).
         # --without-pip skips ensurepip entirely; pip is bootstrapped via
         # get-pip.py in the next step — no sudo required.
@@ -319,7 +319,7 @@ fi
 if ! "$VENV_PYTHON" -c "import aioesphomeapi" 2>/dev/null; then
     info "Installing aioesphomeapi into venv ..."
     "$VENV_PYTHON" -m pip install --upgrade pip --quiet
-    "$VENV_PYTHON" -m pip install aioesphomeapi \
+    "$VENV_PYTHON" -m pip install aioesphomeapi --quiet \
         || die "pip install failed. Try manually: $VENV_PYTHON -m pip install aioesphomeapi"
     ok "aioesphomeapi installed in venv."
 else
