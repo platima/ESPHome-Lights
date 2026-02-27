@@ -607,11 +607,11 @@ async def main():
     loop.add_signal_handler(signal.SIGINT, request_shutdown)
     loop.add_signal_handler(signal.SIGHUP, request_reload)
 
-    # Start up
-    await manager.connect_all()
+    # Start the socket server first so the CLI can connect and poll status
+    # while device connections are still in progress.
     await server.start()
-
     log.info("Daemon ready")
+    await manager.connect_all()
 
     # Main loop - handle shutdown and reload signals
     while not shutdown_event.is_set():
