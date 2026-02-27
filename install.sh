@@ -17,7 +17,7 @@
 #   Scripts:   ~/.local/lib/esphome-lights/
 #   Binaries:  ~/.local/bin/esphome-lights  (symlinks)
 #              ~/.local/bin/esphome-lightsd
-#   Config:    ~/.config/esphome-lights/env
+#   Config:    ~/.config/esphome-lights/env  (or ~/.openclaw/workspace/.env)
 #   Socket:    $XDG_RUNTIME_DIR/esphome-lights.sock
 #   Service:   ~/.config/systemd/user/esphome-lightsd.service
 # =============================================================================
@@ -52,6 +52,28 @@ ask_yn() {
     read -rp "$prompt" yn
     yn="${yn:-$default}"
     [[ "${yn,,}" == "y" ]]
+}
+
+# ---------------------------------------------------------------------------
+# Helpers (config template)
+# ---------------------------------------------------------------------------
+
+_create_env_template() {
+    cat > "$ENV_FILE" << 'EOF'
+# ESPHome Lights - device configuration
+# Format: ESPHOME_LIGHTS_<LOCATION>="<host>:<port>|<encryption_key>"
+#
+# - LOCATION is uppercased in the variable name, lowercased in CLI commands.
+# - Port is usually 6053 (the native ESPHome API port).
+# - The encryption key is the Noise PSK shown in your ESPHome device config.
+#
+# Add one line per device. Examples:
+#
+# ESPHOME_LIGHTS_LIVING_ROOM="10.42.40.55:6053|J+YkHH7XC+4dQwWvPoF5kaz7tP4NY4HJNTL0QyZM1Rg="
+# ESPHOME_LIGHTS_BEDROOM="10.42.40.56:6053|another_key_here="
+EOF
+    ok "Template created at $ENV_FILE"
+    warn "Edit $ENV_FILE to add your devices before starting the daemon."
 }
 
 # ---------------------------------------------------------------------------
@@ -149,29 +171,29 @@ fi
 
 mkdir -p "$CONFIG_DIR"
 ENV_FILE="$CONFIG_DIR/env"
+OPENCLAW_ENV="$HOME/.openclaw/workspace/.env"
+
+if [[ -f "$OPENCLAW_ENV" ]]; then
+    info "OpenClaw workspace .env detected at $OPENCLAW_ENV"
+    info "This file will be loaded automatically with highest priority."
+    info "ESPHome device vars (ESPHOME_LIGHTS_*) can live there or in $ENV_FILE"
+fi
 
 if [[ -f "$ENV_FILE" ]]; then
     ok "Config file exists: $ENV_FILE"
 else
-    warn "No config file found at $ENV_FILE"
-    if ask_yn "Create a template config file now?" "y"; then
-        cat > "$ENV_FILE" << 'EOF'
-# ESPHome Lights - device configuration
-# Format: ESPHOME_LIGHTS_<LOCATION>="<host>:<port>|<encryption_key>"
-#
-# - LOCATION is uppercased in the variable name, lowercased in CLI commands.
-# - Port is usually 6053 (the native ESPHome API port).
-# - The encryption key is the Noise PSK shown in your ESPHome device config.
-#
-# Add one line per device. Examples:
-#
-# ESPHOME_LIGHTS_LIVING_ROOM="10.42.40.55:6053|J+YkHH7XC+4dQwWvPoF5kaz7tP4NY4HJNTL0QyZM1Rg="
-# ESPHOME_LIGHTS_BEDROOM="10.42.40.56:6053|another_key_here="
-EOF
-        ok "Template created at $ENV_FILE"
-        warn "Edit $ENV_FILE to add your devices before starting the daemon."
+    if [[ -f "$OPENCLAW_ENV" ]]; then
+        warn "No $ENV_FILE found (OpenClaw .env will still be used)."
+        if ask_yn "Create $ENV_FILE for ESPHome-specific vars anyway?" "n"; then
+            _create_env_template
+        fi
     else
-        warn "Skipped. Create $ENV_FILE manually before starting the daemon."
+        warn "No config file found at $ENV_FILE"
+        if ask_yn "Create a template config file now?" "y"; then
+            _create_env_template
+        else
+            warn "Skipped. Create $ENV_FILE manually before starting the daemon."
+        fi
     fi
 fi
 
@@ -197,7 +219,6 @@ Wants=network-online.target
 Type=simple
 ExecStart=$PYTHON $INSTALL_LIB/esphome-lightsd.py
 WorkingDirectory=$INSTALL_LIB
-EnvironmentFile=$ENV_FILE
 Environment=ESPHOME_LIGHTS_SOCKET=%t/esphome-lights.sock
 Restart=on-failure
 RestartSec=5
@@ -252,10 +273,15 @@ ok "Installation complete!"
 echo
 info "Next steps:"
 echo "  1. Edit your device config:    $ENV_FILE"
+echo "     (or add ESPHOME_LIGHTS_* vars to ~/.openclaw/workspace/.env)"
 echo "  2. Start the daemon:           systemctl --user start $SERVICE_NAME"
 echo "  3. Check daemon status:        systemctl --user status $SERVICE_NAME"
 echo "  4. List configured devices:    esphome-lights --list"
 echo "  5. Check device states:        esphome-lights --status"
+echo
+info "After editing config, reload without restarting:"
+echo "  esphome-lights --reload"
+echo "  (or: systemctl --user kill -s HUP $SERVICE_NAME)"
 echo
 info "To view daemon logs:  journalctl --user -u $SERVICE_NAME -f"
 info "To update:            re-run this installer"

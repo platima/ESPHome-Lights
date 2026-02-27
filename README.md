@@ -7,7 +7,7 @@ native ESPHome API, designed as an
 [OpenClaw](https://github.com/openclaw/openclaw) skill for
 voice/chat-driven home automation.
 
-**Version:** 0.1.1
+**Version:** 0.1.2
 
 ## Overview
 
@@ -96,6 +96,20 @@ When installed via `install.sh`, the config file lives at:
 
 The installer creates a commented template here if no file is found.
 
+### Config loading priority
+
+The daemon loads env files in priority order on startup and on every reload.
+Higher-priority sources override lower ones:
+
+| Priority | File |
+|----------|------|
+| 1 (highest) | `~/.openclaw/workspace/.env` (if present) |
+| 2 | `~/.config/esphome-lights/env` |
+| 3 (fallback) | `{script_dir}/../.env` |
+
+The systemd unit does **not** use `EnvironmentFile=`; Python handles all
+env loading, so reloads via SIGHUP or `--reload` immediately pick up changes.
+
 ### Manual / environment variable
 
 You can also export variables in your shell or place a `.env` file one
@@ -123,23 +137,26 @@ python3 esphome-lightsd.py
 
 ```bash
 # List configured lights (shows connection state)
-esphome-lights.py --list
+esphome-lights --list
 
 # Show on/off state of all lights (from daemon cache - instant)
-esphome-lights.py --status
+esphome-lights --status
 
 # Turn a light on or off
-esphome-lights.py --set living_room --on
-esphome-lights.py --set living_room --off
+esphome-lights --set living_room --on
+esphome-lights --set living_room --off
 
-# Set brightness (0–255)
-esphome-lights.py --set living_room --brightness 128
+# Set brightness (0-255)
+esphome-lights --set living_room --brightness 128
 
 # Set RGB colour (r,g,b, each 0-255)
-esphome-lights.py --set living_room --rgb 255,0,0
+esphome-lights --set living_room --rgb 255,0,0
 
 # Health check
-esphome-lights.py --ping
+esphome-lights --ping
+
+# Reload config without restarting the daemon
+esphome-lights --reload
 ```
 
 ### Flags
@@ -173,7 +190,12 @@ newline-delimited JSON.
 {"cmd": "set", "device": "living_room", "action": "brightness", "value": "128"}
 {"cmd": "set", "device": "living_room", "action": "rgb", "value": "255,0,0"}
 {"cmd": "ping"}
+{"cmd": "reload"}
 ```
+
+The `reload` command re-reads all env files, rebuilds the device list, then
+disconnects removed/changed devices and connects new/changed ones. It returns
+a summary string such as `added: 0, removed: 0, changed: 1, unchanged: 1`.
 
 **Responses:**
 
@@ -186,12 +208,13 @@ newline-delimited JSON.
 ### Daemon Features
 
 - **Persistent connections** to all configured ESPHome devices
-- **Automatic reconnection** with exponential backoff (1 s → 30 s max)
+- **Automatic reconnection** with exponential backoff (1 s to 30 s max)
 - **State caching** - `--status` returns instantly from cache
 - **Multiple concurrent clients** supported
 - **Graceful shutdown** on SIGTERM/SIGINT (cleans up socket file)
 - **Stale socket detection** - removes orphaned socket files on startup
 - **Configurable logging** via `ESPHOME_LIGHTS_LOG_LEVEL` env var
+- **Live reload** via `--reload` or SIGHUP without restarting the daemon
 
 ### systemd
 

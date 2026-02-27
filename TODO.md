@@ -102,3 +102,21 @@ next session picks up from here.
       broken URLs)
 - [x] Update SKILL.md output descriptions for entity type and light details
 - [x] Bump VERSION to 0.1.1
+
+### Phase 3: OpenClaw .env priority + live reload (v0.1.2)
+
+- [x] Priority-ordered env file loading in daemon:
+      `~/.openclaw/workspace/.env` > `~/.config/esphome-lights/env` > legacy
+- [x] `DeviceManager.handle_reload()` - diffs old vs new config, reconnects
+      changed/new devices, disconnects removed devices, returns summary string
+- [x] `SocketServer._dispatch()` made async; added `reload` command that
+      calls `load_env()` + `load_devices()` + `manager.handle_reload()`
+- [x] `main()` updated with SIGHUP handler and reload event loop
+- [x] `esphome-lights --reload` CLI flag sends `{"cmd": "reload"}`
+- [x] `install.sh` updated: no `EnvironmentFile=` in service (Python handles
+      it); OpenClaw `.env` detection and messaging; reload instructions in
+      next-steps output
+- [x] Tests updated: dispatch tests use `asyncio.run()`, new
+      `TestLoadEnvPriority`, `TestDeviceManagerReload`, `--reload` client test
+- [x] Docs updated: README/CLAUDE.md/SKILL.md env priority and reload docs
+- [x] Bump VERSION to 0.1.2

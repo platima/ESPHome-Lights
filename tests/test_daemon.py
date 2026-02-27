@@ -399,16 +399,16 @@ class TestSocketServerDispatch(unittest.TestCase):
         self.server = daemon.SocketServer(self.mgr, "/tmp/test.sock")
 
     def test_dispatch_list(self):
-        result = self.server._dispatch({"cmd": "list"})
+        result = asyncio.run(self.server._dispatch({"cmd": "list"}))
         self.assertTrue(result["ok"])
 
     def test_dispatch_status(self):
         self.mgr._conn_state = {"living_room": "connected", "bedroom": "connected"}
-        result = self.server._dispatch({"cmd": "status"})
+        result = asyncio.run(self.server._dispatch({"cmd": "status"}))
         self.assertTrue(result["ok"])
 
     def test_dispatch_ping(self):
-        result = self.server._dispatch({"cmd": "ping"})
+        result = asyncio.run(self.server._dispatch({"cmd": "ping"}))
         self.assertTrue(result["ok"])
         self.assertEqual(result["result"], "pong")
 
@@ -416,30 +416,191 @@ class TestSocketServerDispatch(unittest.TestCase):
         self.mgr._conn_state = {"living_room": "connected"}
         self.mgr._clients = {"living_room": MagicMock()}
         self.mgr._entity_info = {"living_room": {"key": 1, "type": "light"}}
-        result = self.server._dispatch(
-            {"cmd": "set", "device": "living_room", "action": "on"}
+        result = asyncio.run(
+            self.server._dispatch(
+                {"cmd": "set", "device": "living_room", "action": "on"}
+            )
         )
         self.assertTrue(result["ok"])
 
     def test_dispatch_set_missing_device(self):
-        result = self.server._dispatch({"cmd": "set", "action": "on"})
+        result = asyncio.run(self.server._dispatch({"cmd": "set", "action": "on"}))
         self.assertFalse(result["ok"])
         self.assertIn("device", result["error"].lower())
 
     def test_dispatch_set_missing_action(self):
-        result = self.server._dispatch({"cmd": "set", "device": "living_room"})
+        result = asyncio.run(self.server._dispatch({"cmd": "set", "device": "living_room"}))
         self.assertFalse(result["ok"])
         self.assertIn("action", result["error"].lower())
 
     def test_dispatch_missing_cmd(self):
-        result = self.server._dispatch({})
+        result = asyncio.run(self.server._dispatch({}))
         self.assertFalse(result["ok"])
         self.assertIn("cmd", result["error"].lower())
 
     def test_dispatch_unknown_cmd(self):
-        result = self.server._dispatch({"cmd": "explode"})
+        result = asyncio.run(self.server._dispatch({"cmd": "explode"}))
         self.assertFalse(result["ok"])
         self.assertIn("unknown", result["error"].lower())
+
+    def test_dispatch_reload(self):
+        """reload command calls load_env/load_devices and handle_reload."""
+        _fake_devices = {
+            "living_room": {"host": "10.0.0.1", "port": 6053, "encryption_key": "abc"}
+        }
+
+        async def run():
+            with patch.object(daemon, "load_env") as mock_env, \
+                 patch.object(daemon, "load_devices", return_value=_fake_devices) as mock_dev, \
+                 patch.object(self.mgr, "handle_reload", new=AsyncMock(return_value={"ok": True, "result": "no changes"})) as mock_reload:
+                result = await self.server._dispatch({"cmd": "reload"})
+            mock_env.assert_called_once()
+            mock_dev.assert_called_once()
+            mock_reload.assert_called_once_with(_fake_devices)
+            self.assertTrue(result["ok"])
+
+        asyncio.run(run())
+
+
+class TestLoadEnvPriority(unittest.TestCase):
+    """Test that load_env loads files in priority order."""
+
+    def test_high_priority_overrides_low(self):
+        """Variables from a higher-priority file override lower-priority ones."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            low = os.path.join(tmpdir, "low.env")
+            high = os.path.join(tmpdir, "high.env")
+            with open(low, "w") as f:
+                f.write('ESPHOME_LIGHTS_TEST_VAR="low_value"\n')
+            with open(high, "w") as f:
+                f.write('ESPHOME_LIGHTS_TEST_VAR="high_value"\n')
+
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("ESPHOME_LIGHTS_TEST_VAR", None)
+                daemon._parse_env_file(low)
+                self.assertEqual(os.environ.get("ESPHOME_LIGHTS_TEST_VAR"), "low_value")
+                daemon._parse_env_file(high)
+                self.assertEqual(os.environ.get("ESPHOME_LIGHTS_TEST_VAR"), "high_value")
+
+    def test_parse_strips_quotes(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
+            f.write('MY_QUOTED="hello world"\n')
+            f.write("MY_SINGLE='bye world'\n")
+            fname = f.name
+        try:
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("MY_QUOTED", None)
+                os.environ.pop("MY_SINGLE", None)
+                daemon._parse_env_file(fname)
+                self.assertEqual(os.environ.get("MY_QUOTED"), "hello world")
+                self.assertEqual(os.environ.get("MY_SINGLE"), "bye world")
+        finally:
+            os.unlink(fname)
+
+    def test_parse_skips_comments_and_blanks(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
+            f.write("# This is a comment\n")
+            f.write("\n")
+            f.write('REAL_VAR="value"\n')
+            fname = f.name
+        try:
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("REAL_VAR", None)
+                daemon._parse_env_file(fname)
+                self.assertEqual(os.environ.get("REAL_VAR"), "value")
+        finally:
+            os.unlink(fname)
+
+    def test_parse_missing_file_is_noop(self):
+        """Parsing a non-existent file should not raise."""
+        daemon._parse_env_file("/nonexistent/path/to/file.env")  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# DeviceManager reload
+# ---------------------------------------------------------------------------
+
+
+class TestDeviceManagerReload(unittest.TestCase):
+    """Test the handle_reload method."""
+
+    def _connected_manager(self):
+        """Return a manager with two connected mock clients."""
+        devices = {
+            "living_room": {"host": "10.0.0.1", "port": 6053, "encryption_key": "abc"},
+            "bedroom": {"host": "10.0.0.2", "port": 6053, "encryption_key": "def"},
+        }
+        mgr = daemon.DeviceManager(devices)
+        mgr._conn_state = {"living_room": "connected", "bedroom": "connected"}
+        mgr._clients = {"living_room": AsyncMock(), "bedroom": AsyncMock()}
+        return mgr
+
+    def test_reload_no_changes(self):
+        """Reload with identical config should report no changes."""
+        mgr = self._connected_manager()
+        new_devices = {
+            "living_room": {"host": "10.0.0.1", "port": 6053, "encryption_key": "abc"},
+            "bedroom": {"host": "10.0.0.2", "port": 6053, "encryption_key": "def"},
+        }
+
+        async def run():
+            with patch.object(mgr, "_connect", new=AsyncMock()):
+                result = await mgr.handle_reload(new_devices)
+            self.assertTrue(result["ok"])
+            self.assertIn("0 added", result["result"])
+            self.assertIn("0 removed", result["result"])
+            self.assertIn("2 unchanged", result["result"])
+
+        asyncio.run(run())
+
+    def test_reload_adds_new_device(self):
+        """Reload with a new device should connect it."""
+        mgr = self._connected_manager()
+        new_devices = {
+            "living_room": {"host": "10.0.0.1", "port": 6053, "encryption_key": "abc"},
+            "bedroom": {"host": "10.0.0.2", "port": 6053, "encryption_key": "def"},
+            "kitchen": {"host": "10.0.0.3", "port": 6053, "encryption_key": "ghi"},
+        }
+
+        async def run():
+            with patch.object(mgr, "_connect", new=AsyncMock()) as mock_connect:
+                result = await mgr.handle_reload(new_devices)
+            mock_connect.assert_called_once()
+            self.assertIn("1 added", result["result"])
+
+        asyncio.run(run())
+
+    def test_reload_removes_device(self):
+        """Reload without a previously present device should disconnect it."""
+        mgr = self._connected_manager()
+        new_devices = {
+            "living_room": {"host": "10.0.0.1", "port": 6053, "encryption_key": "abc"},
+        }
+        mock_client = AsyncMock()
+        mgr._clients["bedroom"] = mock_client
+
+        async def run():
+            with patch.object(mgr, "_connect", new=AsyncMock()):
+                result = await mgr.handle_reload(new_devices)
+            self.assertIn("1 removed", result["result"])
+
+        asyncio.run(run())
+
+    def test_reload_changed_device_reconnects(self):
+        """Reload with a changed encryption key should disconnect then reconnect."""
+        mgr = self._connected_manager()
+        new_devices = {
+            "living_room": {"host": "10.0.0.1", "port": 6053, "encryption_key": "NEW_KEY"},
+            "bedroom": {"host": "10.0.0.2", "port": 6053, "encryption_key": "def"},
+        }
+
+        async def run():
+            with patch.object(mgr, "_connect", new=AsyncMock()) as mock_connect:
+                result = await mgr.handle_reload(new_devices)
+            mock_connect.assert_called_once()
+            self.assertIn("1 changed", result["result"])
+
+        asyncio.run(run())
 
 
 # ---------------------------------------------------------------------------

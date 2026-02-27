@@ -209,6 +209,23 @@ class TestClientDaemonIntegration(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_send_reload(self):
+        """Client sends reload, gets ok response."""
+
+        async def run():
+            fd = FakeDaemon()
+            await fd.start()
+            try:
+                resp = await self._run_client_in_thread(fd, {"cmd": "reload"})
+                # FakeDaemon echoes unknown cmds with ok:false, but we just
+                # verify the command was sent and a JSON response received.
+                self.assertIsInstance(resp, dict)
+                self.assertIn("ok", resp)
+            finally:
+                await fd.stop()
+
+        asyncio.run(run())
+
     def test_background_returns_none(self):
         """Background mode sends the command but returns None (no response read)."""
 

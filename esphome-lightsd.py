@@ -15,14 +15,23 @@ Request examples:
   {"cmd": "set", "device": "living_room", "action": "brightness", "value": "128"}
   {"cmd": "set", "device": "living_room", "action": "rgb", "value": "255,0,0"}
   {"cmd": "ping"}
+  {"cmd": "reload"}
 
 Response format:
   {"ok": true, "result": ...}
   {"ok": false, "error": "..."}
 
-Configuration:
+Configuration (loaded in priority order, highest wins):
+  ~/.openclaw/workspace/.env          — shared OpenClaw workspace config
+  ~/.config/esphome-lights/env        — per-service config (installer default)
+  {script_dir}/../.env                — legacy fallback
+
   ESPHOME_LIGHTS_<LOCATION>="<host>:<port>|<encryption_key>"
   ESPHOME_LIGHTS_SOCKET="/tmp/esphome-lights.sock"  (optional, default shown)
+
+Reload:
+  Send SIGHUP or {"cmd": "reload"} to re-read config files and reconnect
+  added/changed/removed devices without restarting the daemon.
 """
 
 import asyncio
@@ -58,18 +67,50 @@ RECONNECT_MAX = 30
 RECONNECT_FACTOR = 2
 
 
+def _parse_env_file(path: str):
+    """Parse a key=value env file and apply variables to os.environ.
+
+    Uses direct assignment so later calls override earlier ones,
+    enabling priority-ordered loading. Surrounding quotes are stripped.
+    Silently returns if the file does not exist.
+    """
+    try:
+        fh = open(path)
+    except FileNotFoundError:
+        return
+    with fh:
+        for line in fh:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, value = line.partition("=")
+                value = value.strip()
+                # Strip optional surrounding quotes (single or double)
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                    value = value[1:-1]
+                os.environ[key.strip()] = value
+
+
 def load_env():
-    """Load .env from one directory above the script, if present."""
-    env_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"
-    )
-    if os.path.exists(env_path):
-        with open(env_path) as fh:
-            for line in fh:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, value = line.split("=", 1)
-                    os.environ.setdefault(key.strip(), value.strip())
+    """Load device config from env files in priority order.
+
+    Priority (highest wins, loaded last):
+      1. ~/.openclaw/workspace/.env  - shared OpenClaw workspace config
+      2. ~/.config/esphome-lights/env - per-service config (installer default)
+      3. {script_dir}/../.env         - legacy fallback
+
+    Files are loaded with direct os.environ assignment so higher-priority
+    files override lower-priority ones. Safe to call again on reload.
+    """
+    candidates = [
+        # Lowest priority first
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"),
+        os.path.join(os.path.expanduser("~"), ".config", "esphome-lights", "env"),
+        os.path.join(os.path.expanduser("~"), ".openclaw", "workspace", ".env"),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            _parse_env_file(path)
+            log.debug("Loaded env from %s", path)
 
 
 def load_devices():
@@ -91,7 +132,7 @@ def load_devices():
                 }
             except (ValueError, IndexError):
                 log.warning(
-                    "Invalid format for %s — expected 'host:port|encryption_key'", key
+                    "Invalid format for %s - expected 'host:port|encryption_key'", key
                 )
     return devices
 
@@ -356,6 +397,57 @@ class DeviceManager:
     def handle_ping() -> dict:
         return {"ok": True, "result": "pong"}
 
+    async def handle_reload(self, new_devices: dict) -> dict:
+        """Reload device configuration and reconnect as needed.
+
+        Compares new_devices against the current config:
+          - New devices are connected.
+          - Removed devices are disconnected.
+          - Changed devices are disconnected then reconnected.
+          - Unchanged devices are left alone.
+        """
+        old_keys = set(self._devices.keys())
+        new_keys = set(new_devices.keys())
+
+        removed = old_keys - new_keys
+        added = new_keys - old_keys
+        changed = {
+            k for k in old_keys & new_keys
+            if new_devices[k] != self._devices[k]
+        }
+
+        # Update stored config before reconnecting
+        self._devices = new_devices
+
+        # Disconnect removed and changed devices cleanly
+        for name in removed | changed:
+            task = self._reconnect_tasks.pop(name, None)
+            if task and not task.done():
+                task.cancel()
+            client = self._clients.pop(name, None)
+            if client:
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
+            self._conn_state.pop(name, None)
+            self._state_cache.pop(name, None)
+            self._entity_info.pop(name, None)
+
+        # Connect new and changed devices
+        if added | changed:
+            await asyncio.gather(
+                *(self._connect(name) for name in added | changed),
+                return_exceptions=True,
+            )
+
+        summary = (
+            f"Reloaded: {len(added)} added, {len(removed)} removed, "
+            f"{len(changed)} changed, {len(old_keys & new_keys) - len(changed)} unchanged"
+        )
+        log.info(summary)
+        return {"ok": True, "result": summary}
+
 
 # ---------------------------------------------------------------------------
 # Socket server
@@ -422,7 +514,7 @@ class SocketServer:
                     await writer.drain()
                     continue
 
-                response = self._dispatch(request)
+                response = await self._dispatch(request)
                 writer.write((json.dumps(response) + "\n").encode("utf-8"))
                 await writer.drain()
 
@@ -439,7 +531,7 @@ class SocketServer:
             except Exception:
                 pass
 
-    def _dispatch(self, request: dict) -> dict:
+    async def _dispatch(self, request: dict) -> dict:
         """Route a parsed JSON request to the appropriate handler."""
         cmd = request.get("cmd")
         if cmd is None:
@@ -451,6 +543,12 @@ class SocketServer:
             return self._manager.handle_status()
         elif cmd == "ping":
             return self._manager.handle_ping()
+        elif cmd == "reload":
+            load_env()
+            new_devices = load_devices()
+            if not new_devices:
+                return {"ok": False, "error": "No devices found in config after reload"}
+            return await self._manager.handle_reload(new_devices)
         elif cmd == "set":
             device = request.get("device")
             action = request.get("action")
@@ -482,16 +580,22 @@ async def main():
     manager = DeviceManager(devices)
     server = SocketServer(manager)
 
-    # Set up graceful shutdown
+    # Set up graceful shutdown and config-reload events
     shutdown_event = asyncio.Event()
+    reload_event = asyncio.Event()
 
     def request_shutdown():
         log.info("Shutdown requested")
         shutdown_event.set()
 
+    def request_reload():
+        log.info("SIGHUP received - reloading configuration")
+        reload_event.set()
+
     loop = asyncio.get_event_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, request_shutdown)
+    loop.add_signal_handler(signal.SIGTERM, request_shutdown)
+    loop.add_signal_handler(signal.SIGINT, request_shutdown)
+    loop.add_signal_handler(signal.SIGHUP, request_reload)
 
     # Start up
     await manager.connect_all()
@@ -499,11 +603,32 @@ async def main():
 
     log.info("Daemon ready")
 
-    # Wait for shutdown signal
-    await shutdown_event.wait()
+    # Main loop - handle shutdown and reload signals
+    while not shutdown_event.is_set():
+        reload_event.clear()
+
+        wait_shutdown = asyncio.ensure_future(shutdown_event.wait())
+        wait_reload = asyncio.ensure_future(reload_event.wait())
+        done, pending = await asyncio.wait(
+            [wait_shutdown, wait_reload],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+
+        if shutdown_event.is_set():
+            break
+
+        if reload_event.is_set():
+            load_env()
+            new_devices = load_devices()
+            if new_devices:
+                await manager.handle_reload(new_devices)
+            else:
+                log.warning("Reload: no devices found in config, keeping existing devices")
 
     # Graceful shutdown
-    log.info("Shutting down…")
+    log.info("Shutting down...")
     await server.stop()
     await manager.disconnect_all()
     log.info("Shutdown complete")

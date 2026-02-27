@@ -78,6 +78,16 @@ esphome-lights --ping
 
 Returns `pong` if the daemon is running.
 
+### Reload config (without restarting)
+
+```bash
+esphome-lights --reload
+```
+
+Instructs the daemon to re-read all env files and reconnect any devices that
+were added, removed, or changed. Returns a summary such as
+`added: 0, removed: 0, changed: 1, unchanged: 1`.
+
 ## Notes
 
 - Device names come from environment variables: `ESPHOME_LIGHTS_<LOCATION>`.

@@ -80,10 +80,15 @@ ESPHOME_LIGHTS_<LOCATION>="<host>:<port>|<encryption_key>"
 - Location is lowercased for CLI use.
 - Port is typically `6053` (native ESPHome API).
 
-When installed via `install.sh`, config lives at `~/.config/esphome-lights/env`
-and is loaded by the systemd unit via `EnvironmentFile=`. For manual runs, the
-daemon also loads a `.env` file from one directory above the script as a
-fallback.
+The daemon loads env files in **priority order** (highest to lowest). Later
+files override earlier ones, so the highest-priority source wins:
+
+1. `~/.openclaw/workspace/.env` -- OpenClaw workspace (if present)
+2. `~/.config/esphome-lights/env` -- installer-managed config file
+3. `{script_dir}/../.env` -- legacy fallback for manual installs
+
+The systemd unit no longer uses `EnvironmentFile=`; Python handles all loading
+so that SIGHUP-triggered reloads pick up changes immediately.
 
 - Example:
   ```
@@ -93,13 +98,14 @@ fallback.
 ## CLI Interface
 
 ```
-esphome-lights.py --list                          # List configured lights
-esphome-lights.py --status                        # Show on/off state
-esphome-lights.py --set <light-id> --on           # Turn on
-esphome-lights.py --set <light-id> --off          # Turn off
-esphome-lights.py --set <light-id> --brightness N # Set brightness (0-255)
-esphome-lights.py --set <light-id> --rgb r,g,b    # Set RGB colour
-esphome-lights.py --ping                          # Health check (daemon mode)
+esphome-lights --list                          # List configured lights
+esphome-lights --status                        # Show on/off state
+esphome-lights --set <light-id> --on           # Turn on
+esphome-lights --set <light-id> --off          # Turn off
+esphome-lights --set <light-id> --brightness N # Set brightness (0-255)
+esphome-lights --set <light-id> --rgb r,g,b    # Set RGB colour
+esphome-lights --ping                          # Health check (daemon mode)
+esphome-lights --reload                        # Reload config without restart
 
 Flags:
   --bg, --background   Fire and forget (return immediately)
@@ -200,6 +206,17 @@ Unix socket at `/tmp/esphome-lights.sock` (configurable via
 {"cmd": "set", "device": "living_room", "action": "brightness", "value": "128"}
 {"cmd": "set", "device": "living_room", "action": "rgb", "value": "255,0,0"}
 {"cmd": "ping"}
+{"cmd": "reload"}
+```
+
+The `reload` command re-reads all env files (priority order), rebuilds the
+device list, then disconnects removed/changed devices and connects new/changed
+ones. It returns a summary string (e.g. `added: 0, removed: 0, changed: 0,
+unchanged: 2`).
+
+The daemon also handles **SIGHUP** for OS-level reloads:
+```bash
+systemctl --user kill -s HUP esphome-lightsd
 ```
 
 **Response format:**
@@ -254,7 +271,7 @@ Ensure `ESPHOME_LIGHTS_*` env vars are available to the agent.
 
 ## Current State
 
-- **Version:** 0.1.1
+- **Version:** 0.1.2
 - **Status:** Daemon + thin CLI client architecture implemented, with user-level installer.
 - The daemon (`esphome-lightsd.py`) maintains persistent connections and
   serves commands via a Unix domain socket.

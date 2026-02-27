@@ -14,6 +14,7 @@ Usage:
   esphome-lights.py --set <light-id> --brightness N # Set brightness (0-255)
   esphome-lights.py --set <light-id> --rgb r,g,b    # Set RGB colour
   esphome-lights.py --ping                          # Daemon health check
+  esphome-lights.py --reload                        # Reload daemon config
 
 Flags:
   --bg, --background   Fire and forget (return immediately)
@@ -123,6 +124,7 @@ def main():
     parser.add_argument("--brightness", type=str, help="Set brightness (0-255)")
     parser.add_argument("--rgb", type=str, help="Set RGB colour (r,g,b)")
     parser.add_argument("--ping", action="store_true", help="Daemon health check")
+    parser.add_argument("--reload", action="store_true", help="Reload daemon configuration")
     parser.add_argument(
         "--bg",
         "--background",
@@ -158,6 +160,14 @@ def main():
 
     elif args.ping:
         resp = send_command({"cmd": "ping"})
+        if resp and resp.get("ok"):
+            print(resp["result"])
+        elif resp:
+            print(f"Error: {resp.get('error', 'unknown error')}", file=sys.stderr)
+            sys.exit(1)
+
+    elif args.reload:
+        resp = send_command({"cmd": "reload"})
         if resp and resp.get("ok"):
             print(resp["result"])
         elif resp:
