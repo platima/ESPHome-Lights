@@ -135,6 +135,7 @@ info "Installing scripts to $INSTALL_LIB ..."
 mkdir -p "$INSTALL_LIB" "$INSTALL_BIN"
 cp "$SOURCE_DIR/esphome-lights.py"  "$INSTALL_LIB/"
 cp "$SOURCE_DIR/esphome-lightsd.py" "$INSTALL_LIB/"
+cp "$SOURCE_DIR/SKILL.md"           "$INSTALL_LIB/"
 chmod +x "$INSTALL_LIB/esphome-lights.py" "$INSTALL_LIB/esphome-lightsd.py"
 
 # Symlinks in ~/.local/bin so the commands are on PATH
@@ -254,7 +255,9 @@ if [[ -d "$OPENCLAW_DIR" ]]; then
     info "OpenClaw detected at ~/.openclaw"
     SKILL_LINK="$OPENCLAW_SKILLS_DIR/esphome-lights"
     if [[ -e "$SKILL_LINK" ]]; then
-        ok "OpenClaw skill already present at $SKILL_LINK"
+        # Re-create the symlink in case the target has moved, then confirm update.
+        ln -sf "$INSTALL_LIB" "$SKILL_LINK"
+        ok "OpenClaw skill updated at $SKILL_LINK"
     else
         if ask_yn "Install ESPHome Lights as an OpenClaw skill?" "y"; then
             mkdir -p "$OPENCLAW_SKILLS_DIR"
