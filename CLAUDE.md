@@ -30,22 +30,19 @@ CLI client  —(Unix socket)—>  Daemon  —(persistent ESPHome API connections
 - **WSL2:** Debian instance available for Linux-native tooling
 - **Terminals:** PowerShell in VS Code; Debian WSL2 accessible if needed
 - **Deployment target:** Luckfox Pico (ARM Linux SBC), resource-constrained
-- **Python interpreter:** System Python 3.13 confirmed working on the Luckfox
-  Pico with `aioesphomeapi` 44.0.0. The legacy 3.11 venv is no longer required.
-  - **Install `noiseprotocol` in user space** — both `noise` 1.2.2 (Perlin
-    noise) and `noiseprotocol` install into the same `noise/` directory.
-    Uninstalling `noise` 1.2.2 deletes that directory, silently breaking
-    `noiseprotocol`. Fix: `python3.13 -m pip install --force-reinstall noiseprotocol`.
-  - The Cython-compiled `.so` files in the pre-built wheel still resolve
-    `import noise` at runtime via Python's normal import system — there is no
-    static linking. If the `noise/` directory is missing from `sys.path`, the
-    import fails with `ModuleNotFoundError: No module named 'noise'`.
+- **Python interpreter:** Daemon requires **Python 3.11** in a dedicated venv
+  (`~/.local/lib/esphome-lights/venv`). Python 3.12/3.13 has Noise encryption
+  compatibility issues on ARM (compiled `noise` C extension behaves differently).
+  The CLI client is stdlib-only and uses system `python3`.
+  - **`noiseprotocol` vs `noise` conflict** — both install into the same `noise/`
+    directory. The installer force-reinstalls `noiseprotocol` after `aioesphomeapi`
+    to avoid silent breakage. Fix manually: `venv/bin/pip install --force-reinstall noiseprotocol`.
 
 ## Tech Stack
 
 | Component            | Detail                                         |
 |----------------------|------------------------------------------------|
-| Language             | Python 3.11 / 3.13                             |
+| Language             | Python 3.11 (daemon venv), any python3 (CLI)   |
 | Async framework      | `asyncio` (stdlib)                             |
 | ESPHome comms        | `aioesphomeapi` (Noise protocol, protobuf)     |
 | IPC                  | Unix domain socket, newline-delimited JSON     |
@@ -63,6 +60,7 @@ CLI client  —(Unix socket)—>  Daemon  —(persistent ESPHome API connections
 | `tests/`                    | Unit tests (test_daemon.py, test_client.py)          |
 | `SKILL.md`                  | OpenClaw skill definition for chat-driven control    |
 | `.env`                      | Device config (one level up from script directory)   |
+| `venv/`                     | Python 3.11 venv (at `~/.local/lib/esphome-lights/venv`, not in repo) |
 | `CLAUDE.md`                 | AI assistant context (this file)                     |
 | `TODO.md`                   | Persistent task tracker across sessions              |
 | `README.md`                 | User-facing documentation                            |
@@ -271,7 +269,7 @@ Ensure `ESPHOME_LIGHTS_*` env vars are available to the agent.
 
 ## Current State
 
-- **Version:** 0.1.3
+- **Version:** 0.1.4
 - **Status:** Daemon + thin CLI client architecture implemented, with user-level installer.
 - The daemon (`esphome-lightsd.py`) maintains persistent connections and
   serves commands via a Unix domain socket.

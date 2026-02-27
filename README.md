@@ -7,7 +7,7 @@ native ESPHome API, designed as an
 [OpenClaw](https://github.com/openclaw/openclaw) skill for
 voice/chat-driven home automation.
 
-**Version:** 0.1.3
+**Version:** 0.1.4
 
 ## Overview
 
@@ -36,12 +36,14 @@ CLI client  —(Unix socket)—>  Daemon  —(persistent ESPHome API connections
 
 ## Requirements
 
-- **Python 3.11 or 3.13** - both confirmed working with `aioesphomeapi` 44.0.0.
+- **Python 3.11** - required for the daemon due to `aioesphomeapi` + Noise
+  encryption compatibility on ARM targets. Python 3.12/3.13 has issues with
+  the compiled `noise` extension on ARM (e.g. Luckfox Pico, Orange Pi).
+  The CLI client is stdlib-only and works with any `python3`.
   > **Gotcha:** `noise` 1.2.2 (Perlin noise) and `noiseprotocol` both install
-  > into the same `noise/` directory. If you ever `pip uninstall noise`, run
-  > `pip install --force-reinstall noiseprotocol` immediately after to restore
-  > the directory that `aioesphomeapi` needs.
-- **`aioesphomeapi`** - install via pip
+  > into the same `noise/` directory. The installer force-reinstalls
+  > `noiseprotocol` after `aioesphomeapi` to guard against this automatically.
+- **`aioesphomeapi`** - installed into the venv by the installer
 - ESPHome devices with the native API enabled and encryption keys configured
 
 ## Installation
@@ -68,9 +70,9 @@ The installer will:
 
 1. Refuse to run as root.
 2. Install scripts to `~/.local/lib/esphome-lights/` with symlinks in `~/.local/bin/`.
-3. Install `aioesphomeapi` (with the `noiseprotocol` fix applied automatically).
+3. Create a Python 3.11 venv at `~/.local/lib/esphome-lights/venv` and install `aioesphomeapi` there (with the `noiseprotocol` fix applied automatically).
 4. Check for a config file and offer to create a template if none exists.
-5. Install and enable a systemd user service with the socket at `$XDG_RUNTIME_DIR/esphome-lights.sock`.
+5. Install and enable a systemd user service (using the venv Python) with the socket at `$XDG_RUNTIME_DIR/esphome-lights.sock`.
 6. Enable `loginctl linger` so the daemon starts at boot without requiring login.
 7. Detect `~/.openclaw` and offer to register the skill if OpenClaw is installed.
 

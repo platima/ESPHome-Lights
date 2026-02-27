@@ -15,6 +15,7 @@
 #
 # Install layout:
 #   Scripts:   ~/.local/lib/esphome-lights/
+#   Venv:      ~/.local/lib/esphome-lights/venv  (Python 3.11, daemon only)
 #   Binaries:  ~/.local/bin/esphome-lights  (symlinks)
 #              ~/.local/bin/esphome-lightsd
 #   Config:    ~/.config/esphome-lights/env  (or ~/.openclaw/workspace/.env)
@@ -91,16 +92,19 @@ echo
 systemctl --user status > /dev/null 2>&1 \
     || die "systemd user session not available. Is systemd running?\n  Hint: try 'systemctl --user status' to diagnose."
 
-# 3. Python 3.11+
-PYTHON=""
-for candidate in python3.13 python3.12 python3.11 python3; do
+# 3. Python 3.11 — required for the daemon (aioesphomeapi + Noise encryption
+#    has compatibility issues with Python 3.12/3.13 on ARM targets).
+#    The CLI client is stdlib-only and works with any python3.
+PYTHON311=""
+for candidate in python3.11; do
     if command -v "$candidate" > /dev/null 2>&1; then
-        PYTHON="$candidate"
+        PYTHON311="$candidate"
         break
     fi
 done
-[[ -n "$PYTHON" ]] || die "Python 3.11+ not found. Please install Python before running this installer."
-info "Using Python: $PYTHON  ($($PYTHON --version 2>&1))"
+[[ -n "$PYTHON311" ]] || die "Python 3.11 not found. The daemon requires Python 3.11 for Noise encryption compatibility.
+  Install with: sudo apt install python3.11 python3.11-venv"
+info "Using Python 3.11: $PYTHON311  ($($PYTHON311 --version 2>&1))"
 
 # ---------------------------------------------------------------------------
 # Locate source files (local repo or clone)
@@ -151,19 +155,32 @@ if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Python dependencies
+# Python venv + dependencies
 # ---------------------------------------------------------------------------
 
-if ! "$PYTHON" -c "import aioesphomeapi" 2>/dev/null; then
-    info "Installing aioesphomeapi ..."
-    "$PYTHON" -m pip install --user aioesphomeapi \
-        || die "pip install failed. Try manually: $PYTHON -m pip install --user aioesphomeapi"
-    # Reinstall noiseprotocol in case the 'noise' Perlin package overwrote it.
-    # See: https://github.com/platima/ESPHome-Python#requirements
-    "$PYTHON" -m pip install --user --force-reinstall noiseprotocol
-    ok "aioesphomeapi installed."
+VENV_DIR="$INSTALL_LIB/venv"
+VENV_PYTHON="$VENV_DIR/bin/python"
+
+if [[ -d "$VENV_DIR" ]]; then
+    ok "Python 3.11 venv exists: $VENV_DIR"
 else
-    ok "aioesphomeapi already installed."
+    info "Creating Python 3.11 venv at $VENV_DIR ..."
+    "$PYTHON311" -m venv "$VENV_DIR" \
+        || die "Failed to create venv. Ensure python3.11-venv is installed: sudo apt install python3.11-venv"
+    ok "Venv created."
+fi
+
+if ! "$VENV_PYTHON" -c "import aioesphomeapi" 2>/dev/null; then
+    info "Installing aioesphomeapi into venv ..."
+    "$VENV_PYTHON" -m pip install --upgrade pip --quiet
+    "$VENV_PYTHON" -m pip install aioesphomeapi \
+        || die "pip install failed. Try manually: $VENV_PYTHON -m pip install aioesphomeapi"
+    # Force-reinstall noiseprotocol: the 'noise' (Perlin) package installs into
+    # the same noise/ directory and silently breaks encryption if installed first.
+    "$VENV_PYTHON" -m pip install --force-reinstall noiseprotocol
+    ok "aioesphomeapi installed in venv."
+else
+    ok "aioesphomeapi already installed in venv."
 fi
 
 # ---------------------------------------------------------------------------
@@ -218,7 +235,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=$PYTHON $INSTALL_LIB/esphome-lightsd.py
+ExecStart=$VENV_PYTHON $INSTALL_LIB/esphome-lightsd.py
 WorkingDirectory=$INSTALL_LIB
 Environment=ESPHOME_LIGHTS_SOCKET=%t/esphome-lights.sock
 Restart=on-failure

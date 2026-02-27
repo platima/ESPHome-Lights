@@ -120,3 +120,15 @@ next session picks up from here.
       `TestLoadEnvPriority`, `TestDeviceManagerReload`, `--reload` client test
 - [x] Docs updated: README/CLAUDE.md/SKILL.md env priority and reload docs
 - [x] Bump VERSION to 0.1.2
+
+### Phase 4: Bug fixes + installer hardening (v0.1.3 - v0.1.4)
+
+- [x] Fix test_send_reload hermeticity: patch load_env/load_devices so test
+      does not read real env files or attempt real device connections (v0.1.3)
+- [x] Copy SKILL.md to $INSTALL_LIB and always update skill symlink on
+      reinstall instead of silently skipping (v0.1.3)
+- [x] Fix daemon Noise encryption failure on ARM targets: require Python 3.11
+      specifically; create venv at `~/.local/lib/esphome-lights/venv`; install
+      aioesphomeapi in venv; point systemd ExecStart at venv python (v0.1.4)
+- [x] Correct CLAUDE.md/README.md Python version notes (3.11 venv required,
+      3.12/3.13 has ARM noise/Cython incompatibility) (v0.1.4)
