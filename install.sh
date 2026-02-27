@@ -222,18 +222,6 @@ if [[ -z "$PYTHON311" ]]; then
 fi
 info "Using Python 3.11: $PYTHON311  ($($PYTHON311 --version 2>&1))"
 
-# Separate check: venv support is a distinct Debian package (python3.11-venv).
-# python3.11 can be present without it.
-if ! "$PYTHON311" -m venv --help > /dev/null 2>&1; then
-    warn "python3.11-venv not installed (required for the daemon venv)."
-    if ask_yn "Install python3.11-venv via apt now?" "y"; then
-        sudo apt-get install -y python3.11-venv \
-            || die "apt install failed. Install manually: sudo apt install python3.11-venv"
-    else
-        die "python3.11-venv is required. Install manually: sudo apt install python3.11-venv"
-    fi
-fi
-
 # ---------------------------------------------------------------------------
 # Locate source files (local repo or clone)
 # ---------------------------------------------------------------------------
@@ -293,9 +281,16 @@ if [[ -d "$VENV_DIR" ]]; then
     ok "Python 3.11 venv exists: $VENV_DIR"
 else
     info "Creating Python 3.11 venv at $VENV_DIR ..."
-    "$PYTHON311" -m venv --upgrade-deps "$VENV_DIR" \
-        || die "Failed to create venv. Ensure python3.11-venv is installed: sudo apt install python3.11-venv"
-    ok "Venv created."
+    if "$PYTHON311" -m venv --upgrade-deps "$VENV_DIR" 2>/dev/null; then
+        ok "Venv created."
+    elif "$PYTHON311" -m venv --without-pip "$VENV_DIR" 2>/dev/null; then
+        # ensurepip is stripped on this system (Debian without python3.11-venv).
+        # --without-pip skips ensurepip entirely; pip is bootstrapped via
+        # get-pip.py in the next step — no sudo required.
+        ok "Venv created (pip will be bootstrapped below)."
+    else
+        die "Failed to create Python 3.11 venv. Check that python3.11 is installed correctly."
+    fi
 fi
 
 # Bootstrap pip if the venv was created without it (Debian omits pip by default).
