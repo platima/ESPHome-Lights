@@ -102,8 +102,16 @@ for candidate in python3.11; do
         break
     fi
 done
-[[ -n "$PYTHON311" ]] || die "Python 3.11 not found. The daemon requires Python 3.11 for Noise encryption compatibility.
-  Install with: sudo apt install python3.11 python3.11-venv"
+if [[ -z "$PYTHON311" ]]; then
+    warn "Python 3.11 not found. The daemon requires Python 3.11 for Noise encryption compatibility."
+    if ask_yn "Install python3.11 and python3.11-venv via apt now?" "y"; then
+        sudo apt-get install -y python3.11 python3.11-venv \
+            || die "apt install failed. Install manually: sudo apt install python3.11 python3.11-venv"
+        PYTHON311="python3.11"
+    else
+        die "Python 3.11 is required. Install it manually: sudo apt install python3.11 python3.11-venv"
+    fi
+fi
 info "Using Python 3.11: $PYTHON311  ($($PYTHON311 --version 2>&1))"
 
 # ---------------------------------------------------------------------------
