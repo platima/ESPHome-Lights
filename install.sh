@@ -13,6 +13,10 @@
 # Or, if you have already cloned the repo:
 #   bash install.sh
 #
+# Uninstall:
+#   bash install.sh --uninstall
+#   bash <(curl -fsSL https://raw.githubusercontent.com/platima/ESPHome-Python/main/install.sh) --uninstall
+#
 # Install layout:
 #   Scripts:   ~/.local/lib/esphome-lights/
 #   Venv:      ~/.local/lib/esphome-lights/venv  (Python 3.11, daemon only)
@@ -24,6 +28,20 @@
 # =============================================================================
 
 set -euo pipefail
+
+UNINSTALL=0
+for arg in "$@"; do
+    case "$arg" in
+        --uninstall) UNINSTALL=1 ;;
+        -h|--help)
+            echo "Usage: bash install.sh [--uninstall]"
+            echo "  (no args)    Install / update ESPHome Lights"
+            echo "  --uninstall  Remove ESPHome Lights from this system"
+            exit 0
+            ;;
+        *) echo "Unknown option: $arg" >&2; exit 1 ;;
+    esac
+done
 
 REPO_URL="https://github.com/platima/ESPHome-Python.git"
 INSTALL_LIB="$HOME/.local/lib/esphome-lights"
@@ -76,6 +94,96 @@ EOF
     ok "Template created at $ENV_FILE"
     warn "Edit $ENV_FILE to add your devices before starting the daemon."
 }
+
+# ---------------------------------------------------------------------------
+# Uninstall
+# ---------------------------------------------------------------------------
+
+do_uninstall() {
+    echo
+    info "ESPHome Lights uninstaller"
+    echo
+
+    # 1. Refuse to run as root
+    [[ $EUID -ne 0 ]] || die "Do not run this installer as root or with sudo."
+
+    # 2. Stop + disable the service
+    if systemctl --user is-active "$SERVICE_NAME" > /dev/null 2>&1; then
+        info "Stopping $SERVICE_NAME ..."
+        systemctl --user stop "$SERVICE_NAME"
+        ok "Service stopped."
+    fi
+    if systemctl --user is-enabled "$SERVICE_NAME" > /dev/null 2>&1; then
+        systemctl --user disable "$SERVICE_NAME"
+        ok "Service disabled."
+    fi
+
+    # 3. Remove service file
+    if [[ -f "$SERVICE_DIR/$SERVICE_NAME" ]]; then
+        rm -f "$SERVICE_DIR/$SERVICE_NAME"
+        systemctl --user daemon-reload
+        ok "Service file removed."
+    fi
+
+    # 4. Remove CLI symlinks
+    rm -f "$INSTALL_BIN/esphome-lights" "$INSTALL_BIN/esphome-lightsd"
+    ok "Symlinks removed from $INSTALL_BIN."
+
+    # 5. Remove OpenClaw skill symlink (if present)
+    OPENCLAW_SKILL="$HOME/.openclaw/skills/esphome-lights"
+    if [[ -L "$OPENCLAW_SKILL" ]]; then
+        rm -f "$OPENCLAW_SKILL"
+        ok "OpenClaw skill symlink removed."
+    fi
+
+    # 6. Optionally keep or remove the Python 3.11 venv
+    VENV_DIR="$INSTALL_LIB/venv"
+    KEEP_VENV=1
+    if [[ -d "$VENV_DIR" ]]; then
+        if ask_yn "Keep the Python 3.11 venv at $VENV_DIR? (saves re-downloading packages on reinstall)" "y"; then
+            ok "Venv kept at $VENV_DIR"
+            KEEP_VENV=1
+        else
+            KEEP_VENV=0
+        fi
+    fi
+
+    # 7. Remove scripts (and venv if requested)
+    if [[ -d "$INSTALL_LIB" ]]; then
+        rm -f "$INSTALL_LIB/esphome-lights.py" \
+              "$INSTALL_LIB/esphome-lightsd.py" \
+              "$INSTALL_LIB/SKILL.md"
+        if [[ $KEEP_VENV -eq 0 ]]; then
+            rm -rf "$VENV_DIR"
+            ok "Venv removed."
+        fi
+        # Remove the lib dir itself if now empty
+        if [[ -z "$(ls -A "$INSTALL_LIB" 2>/dev/null)" ]]; then
+            rmdir "$INSTALL_LIB"
+        fi
+        ok "Scripts removed from $INSTALL_LIB."
+    fi
+
+    # 8. Optionally remove config
+    if [[ -d "$CONFIG_DIR" ]]; then
+        if ask_yn "Remove config directory $CONFIG_DIR?" "n"; then
+            rm -rf "$CONFIG_DIR"
+            ok "Config directory removed."
+        else
+            ok "Config kept at $CONFIG_DIR"
+        fi
+    fi
+
+    echo
+    ok "Uninstall complete."
+    if [[ $KEEP_VENV -eq 1 && -d "$VENV_DIR" ]]; then
+        info "Venv retained at $VENV_DIR — re-run the installer to restore everything."
+    fi
+    echo
+    exit 0
+}
+
+[[ $UNINSTALL -eq 1 ]] && do_uninstall
 
 # ---------------------------------------------------------------------------
 # Pre-flight checks
