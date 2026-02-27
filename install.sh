@@ -222,6 +222,18 @@ if [[ -z "$PYTHON311" ]]; then
 fi
 info "Using Python 3.11: $PYTHON311  ($($PYTHON311 --version 2>&1))"
 
+# Separate check: venv support is a distinct Debian package (python3.11-venv).
+# python3.11 can be present without it.
+if ! "$PYTHON311" -m venv --help > /dev/null 2>&1; then
+    warn "python3.11-venv not installed (required for the daemon venv)."
+    if ask_yn "Install python3.11-venv via apt now?" "y"; then
+        sudo apt-get install -y python3.11-venv \
+            || die "apt install failed. Install manually: sudo apt install python3.11-venv"
+    else
+        die "python3.11-venv is required. Install manually: sudo apt install python3.11-venv"
+    fi
+fi
+
 # ---------------------------------------------------------------------------
 # Locate source files (local repo or clone)
 # ---------------------------------------------------------------------------
