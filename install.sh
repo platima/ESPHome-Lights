@@ -181,9 +181,24 @@ fi
 # Bootstrap pip if the venv was created without it (Debian omits pip by default).
 if [[ ! -f "$VENV_DIR/bin/pip" ]]; then
     info "Bootstrapping pip into venv ..."
-    "$VENV_PYTHON" -m ensurepip --upgrade \
-        || die "Failed to bootstrap pip. Try: sudo apt install python3.11-distutils"
-    ok "pip bootstrapped."
+    if "$VENV_PYTHON" -m ensurepip --upgrade 2>/dev/null; then
+        ok "pip bootstrapped via ensurepip."
+    else
+        # ensurepip also stripped on this Debian build - fetch get-pip.py instead.
+        warn "ensurepip not available - downloading get-pip.py ..."
+        _GETPIP="$(mktemp)"
+        if command -v curl > /dev/null 2>&1; then
+            curl -fsSL https://bootstrap.pypa.io/get-pip.py -o "$_GETPIP"
+        elif command -v wget > /dev/null 2>&1; then
+            wget -qO "$_GETPIP" https://bootstrap.pypa.io/get-pip.py
+        else
+            die "curl/wget not found and ensurepip unavailable. Install pip manually: sudo apt install python3-pip"
+        fi
+        "$VENV_PYTHON" "$_GETPIP" --quiet \
+            || die "Failed to install pip. Try: sudo apt install python3-pip python3.11-distutils"
+        rm -f "$_GETPIP"
+        ok "pip bootstrapped via get-pip.py."
+    fi
 fi
 
 if ! "$VENV_PYTHON" -c "import aioesphomeapi" 2>/dev/null; then
