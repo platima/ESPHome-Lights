@@ -65,7 +65,7 @@ CLI client  —(Unix socket)—>  Daemon  —(persistent ESPHome API connections
 | `TODO.md`                   | Persistent task tracker across sessions              |
 | `README.md`                 | User-facing documentation                            |
 | `VERSION`                   | Semantic version string                              |
-| `cpython.txt`               | cProfile output from the old monolithic script       |
+
 
 ## Device Configuration
 
@@ -90,20 +90,20 @@ so that SIGHUP-triggered reloads pick up changes immediately.
 
 - Example:
   ```
-  ESPHOME_LIGHTS_LIVING_ROOM="10.42.40.55:6053|J+YkHH7XC+4dQwWvPoF5kaz7tP4NY4HJNTL0QyZM1Rg="
+  ESPHOME_LIGHTS_LIVING_ROOM="192.168.1.101:6053|A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3x4Y5z6A7b8C9d0="
   ```
 
 ## CLI Interface
 
 ```
-esphome-lights --list                          # List configured lights
-esphome-lights --status                        # Show on/off state
-esphome-lights --set <light-id> --on           # Turn on
-esphome-lights --set <light-id> --off          # Turn off
-esphome-lights --set <light-id> --brightness N # Set brightness (0-255)
-esphome-lights --set <light-id> --rgb r,g,b    # Set RGB colour
-esphome-lights --ping                          # Health check (daemon mode)
-esphome-lights --reload                        # Reload config without restart
+esphome-lights --list                              # List configured lights
+esphome-lights --status                            # Show on/off state
+esphome-lights --device <id|all> --on              # Turn on
+esphome-lights --device <id|all> --off             # Turn off
+esphome-lights --device <id|all> --brightness N    # Set brightness (0-255)
+esphome-lights --device <id|all> --rgb r,g,b       # Set RGB colour
+esphome-lights --ping                              # Health check (daemon mode)
+esphome-lights --reload                            # Reload config without restart
 
 Flags:
   --bg, --background   Fire and forget (return immediately)
@@ -188,8 +188,8 @@ them silently — each must be visible in the plan.
   ```bash
   python3 -m unittest discover -s tests -v
   ```
-- **Profiling:** `cpython.txt` contains cProfile output from the old
-  monolithic script for reference.
+- **Profiling:** The old `cpython.txt` cProfile output has been removed from
+  the repo (still in git history for reference).
 
 ## Daemon Protocol
 
@@ -235,7 +235,7 @@ skill. OpenClaw is a self-hosted AI gateway that bridges messaging platforms
 User (WhatsApp/Telegram/etc.)
   → OpenClaw Gateway
     → Agent (with exec tool)
-      → esphome-lights.py --set living_room --on
+      → esphome-lights.py --device living_room --on
         → ESPHome device
 ```
 
@@ -269,15 +269,17 @@ Ensure `ESPHOME_LIGHTS_*` env vars are available to the agent.
 
 ## Current State
 
-- **Version:** 0.1.4
+- **Version:** 0.1.5
 - **Status:** Daemon + thin CLI client architecture implemented, with user-level installer.
 - The daemon (`esphome-lightsd.py`) maintains persistent connections and
   serves commands via a Unix domain socket.
 - The CLI client (`esphome-lights.py`) uses only stdlib for sub-100 ms startup.
 - `install.sh` installs as a systemd user service (no sudo required), checks
-  for config, and offers OpenClaw skill registration.
-- 49 unit tests covering daemon handlers, socket protocol, entity resolution,
-  state caching, and client-daemon integration.
+  for config, and offers OpenClaw skill registration. Supports `--fast`
+  (non-interactive) and `--uninstall` flags.
+- `--device all` broadcasts commands to every device at once.
+- 63 unit tests covering daemon handlers, socket protocol, entity resolution,
+  state caching, client-daemon integration, and all-device wildcard broadcast.
 
 ## Known Limitations
 

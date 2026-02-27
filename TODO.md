@@ -10,25 +10,6 @@ next session picks up from here.
 - [ ] Benchmark daemon performance on the Luckfox Pico target hardware.
 - [ ] Evaluate Python 3.14 free-threaded support for async performance gains.
 - [ ] Test OpenClaw skill loading against a live OpenClaw agent.
-- [ ] Add `.gitattributes` to enforce LF line endings for `*.sh` files.
-
----
-
-## Performance Targets
-
-| Metric                  | Old (monolithic) | Target    |
-|-------------------------|------------------|-----------|
-| `--set` command (cold)  | ~4.2 s           | < 100 ms  |
-| `--status` (all devices)| ~5–8 s           | < 50 ms   |
-| `--list`                | ~1.5 s           | < 50 ms   |
-| CLI client startup      | ~1.5 s           | < 30 ms   |
-
----
-
-## Future / Nice to Have
-
-- [ ] Benchmark daemon performance on the Luckfox Pico target hardware.
-- [ ] Evaluate Python 3.14 free-threaded support for async performance gains.
 
 ---
 

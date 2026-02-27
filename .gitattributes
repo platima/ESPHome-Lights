@@ -1,0 +1,10 @@
+# Enforce LF line endings for files that break with CRLF
+*.sh        text eol=lf
+*.py        text eol=lf
+*.md        text eol=lf
+*.txt       text eol=lf
+*.service   text eol=lf
+*.html      text eol=lf
+.gitignore  text eol=lf
+.gitattributes text eol=lf
+LICENSE     text eol=lf

@@ -292,7 +292,7 @@ class DeviceManager:
         """Schedule a reconnection attempt with exponential backoff."""
         if name in self._reconnect_tasks and not self._reconnect_tasks[name].done():
             return  # Already scheduled
-        self._reconnect_tasks[name] = asyncio.get_event_loop().create_task(
+        self._reconnect_tasks[name] = asyncio.get_running_loop().create_task(
             self._reconnect_loop(name)
         )
 

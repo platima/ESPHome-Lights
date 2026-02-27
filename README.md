@@ -347,16 +347,16 @@ ESPHome-Python/
 ├── esphome-lightsd.py          # Daemon (persistent connections + socket)
 ├── esphome-lightsd.service     # systemd unit file (system-level reference)
 ├── tests/
-│   ├── test_daemon.py          # Daemon unit tests (37 tests)
+│   ├── test_daemon.py          # Daemon unit tests (51 tests)
 │   └── test_client.py          # Client unit + integration tests (12 tests)
 ├── SKILL.md                    # OpenClaw skill definition
 ├── CLAUDE.md                   # AI assistant context
 ├── TODO.md                     # Persistent task tracker
 ├── README.md                   # This file
 ├── VERSION                     # Semantic version string
-└── cpython.txt                 # cProfile output (old monolithic script)
+└── .gitattributes              # LF line-ending enforcement
 ```
 
 ## Licence
 
-See repository for licence details.
+MIT — see [LICENSE](LICENSE) for details.
