@@ -189,6 +189,10 @@ class DeviceManager:
         self._conn_state[name] = "connecting"
         log.info("Connecting to %s (%s:%s)…", name, cfg["host"], cfg["port"])
 
+        # on_stop is the modern aioesphomeapi callback (replaces set_on_disconnect)
+        async def _on_stop(expected_disconnect: bool):
+            await self._on_disconnect(name, expected_disconnect)
+
         try:
             client = APIClient(
                 cfg["host"],
@@ -196,7 +200,9 @@ class DeviceManager:
                 noise_psk=cfg["encryption_key"],
                 password="",
             )
-            await asyncio.wait_for(client.connect(login=True), timeout=10)
+            await asyncio.wait_for(
+                client.connect(on_stop=_on_stop, login=True), timeout=10
+            )
             self._clients[name] = client
             self._conn_state[name] = "connected"
             log.info("Connected to %s", name)
@@ -210,9 +216,6 @@ class DeviceManager:
                 self._handle_state(name, state)
 
             client.subscribe_states(on_state)
-
-            # Register a disconnection callback to trigger reconnect
-            client.set_on_disconnect(lambda: self._on_disconnect(name))
 
         except Exception as exc:
             self._conn_state[name] = "disconnected"
@@ -275,9 +278,12 @@ class DeviceManager:
 
     # -- reconnection --------------------------------------------------------
 
-    def _on_disconnect(self, name: str):
-        """Called when a device disconnects unexpectedly."""
-        log.warning("Lost connection to %s", name)
+    async def _on_disconnect(self, name: str, expected_disconnect: bool = False):
+        """Called by aioesphomeapi when a device connection stops."""
+        if expected_disconnect:
+            log.info("Disconnected from %s (expected)", name)
+        else:
+            log.warning("Lost connection to %s", name)
         self._conn_state[name] = "disconnected"
         self._clients.pop(name, None)
         self._schedule_reconnect(name)
