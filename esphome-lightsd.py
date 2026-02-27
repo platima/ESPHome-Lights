@@ -339,7 +339,20 @@ class DeviceManager:
         return {"ok": True, "result": result}
 
     def handle_set(self, device: str, action: str, value: str | None = None) -> dict:
-        """Execute a set command on a device."""
+        """Execute a set command on one device, or all devices when device='all'."""
+        if device == "all":
+            results = {}
+            any_ok = False
+            for name in sorted(self._devices.keys()):
+                r = self.handle_set(name, action, value)
+                if r.get("ok"):
+                    any_ok = True
+                    results[name] = r["result"]
+                else:
+                    results[name] = f"skipped ({r.get('error', 'error')})"
+            summary = ", ".join(f"{k}: {v}" for k, v in results.items())
+            return {"ok": any_ok, "result": summary}
+
         if device not in self._devices:
             available = ", ".join(sorted(self._devices.keys()))
             return {"ok": False, "error": f"Device '{device}' not found. Available: {available}"}

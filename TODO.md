@@ -121,7 +121,40 @@ next session picks up from here.
 - [x] Docs updated: README/CLAUDE.md/SKILL.md env priority and reload docs
 - [x] Bump VERSION to 0.1.2
 
-### Phase 4: Bug fixes + installer hardening (v0.1.3 - v0.1.4)
+### Phase 5: Reliability, installer polish, and UX improvements (v0.1.5)
+
+- [x] Fix `set_on_disconnect` removal: replaced with `on_stop` async callback
+      parameter to `client.connect()` (aioesphomeapi API change in v44)
+- [x] Start socket server before connecting devices so CLI can poll status
+      during daemon startup (no 10 s socket-not-found window)
+- [x] Installer `--uninstall` flag: stops/disables service, removes
+      scripts/symlinks/skill link, optionally removes venv and config
+- [x] Installer `--fast` flag: non-interactive mode accepting all safe
+      defaults (for scripting and CI)
+- [x] Fix venv creation without sudo: `--without-pip` fallback so
+      `python3.11-venv` Debian package is not required; pip bootstrapped
+      via get-pip.py
+- [x] Always force-reinstall `noiseprotocol` on every install to guard
+      against the `noise`/`noiseprotocol` namespace collision regression
+- [x] Fix socket path mismatch: both daemon and CLI derive socket path
+      from `$XDG_RUNTIME_DIR`; removed `Environment=` from service file
+- [x] Fix `python3.11-venv` separate check (redundant after --without-pip
+      fix, removed)
+- [x] Suppress venv and pip install stdout noise in installer output
+- [x] Installer explicitly start/restart service after install (no silent
+      auto-start from systemd)
+- [x] Sanitise env template: replace real IPs and keys with obviously fake
+      example values
+- [x] Remove blank lines from installer output: after installer header,
+      before "Uninstall complete.", before "Installation complete!"
+- [x] `handle_set(device='all')`: broadcast on/off/brightness/rgb to every
+      device; returns per-device summary; ok=True if any succeeded
+- [x] CLI: rename `--set` to `--device`; keep `--set` as hidden backward-
+      compatible alias
+- [x] Tests: 3 new `handle_set('all', ...)` tests (all connected, partial
+      disconnect, none connected)
+- [x] Update SKILL.md, README.md, CLAUDE.md, TODO.md
+- [x] Bump VERSION to 0.1.5
 
 - [x] Fix test_send_reload hermeticity: patch load_env/load_devices so test
       does not read real env files or attempt real device connections (v0.1.3)

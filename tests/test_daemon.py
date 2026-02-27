@@ -301,6 +301,32 @@ class TestDeviceManagerSet(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("requires a value", result["error"].lower())
 
+    # -- wildcard 'all' -------------------------------------------------------
+
+    def test_set_all_on(self):
+        """'all' broadcasts to every device and returns a summary."""
+        mgr, client = self._connected_manager()
+        result = mgr.handle_set("all", "on")
+        self.assertTrue(result["ok"])
+        self.assertIn("bedroom", result["result"])
+        self.assertIn("living_room", result["result"])
+
+    def test_set_all_partial_disconnected(self):
+        """'all' skips disconnected devices but still returns ok=True for the ones that worked."""
+        mgr, _ = self._connected_manager()
+        mgr._conn_state["bedroom"] = "disconnected"
+        result = mgr.handle_set("all", "on")
+        self.assertTrue(result["ok"])
+        self.assertIn("living_room", result["result"])
+        self.assertIn("skipped", result["result"])
+
+    def test_set_all_none_connected(self):
+        """'all' returns ok=False when every device is disconnected."""
+        mgr, _ = self._connected_manager()
+        mgr._conn_state = {"living_room": "disconnected", "bedroom": "disconnected"}
+        result = mgr.handle_set("all", "on")
+        self.assertFalse(result["ok"])
+
 
 class TestDeviceManagerPing(unittest.TestCase):
     def test_ping(self):

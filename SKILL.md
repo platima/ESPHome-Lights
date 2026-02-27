@@ -41,22 +41,34 @@ esphome-lights --status
 Output: one line per device showing `location  ON/OFF  (entity-type)`. For lights
 that are ON, brightness (0-255) and RGB values are also shown.
 
-### Turn a light on
+### Turn a light/switch on
 
 ```bash
-esphome-lights --set <device> --on
+esphome-lights --device <device> --on
 ```
 
-### Turn a light off
+Use `all` to turn every device on at once:
 
 ```bash
-esphome-lights --set <device> --off
+esphome-lights --device all --on
+```
+
+### Turn a light/switch off
+
+```bash
+esphome-lights --device <device> --off
+```
+
+Use `all` to turn every device off at once:
+
+```bash
+esphome-lights --device all --off
 ```
 
 ### Set brightness (0-255)
 
 ```bash
-esphome-lights --set <device> --brightness <value>
+esphome-lights --device <device> --brightness <value>
 ```
 
 Only works for light entities. Returns an error for switch-type devices
@@ -65,7 +77,7 @@ Only works for light entities. Returns an error for switch-type devices
 ### Set RGB colour (r,g,b - each 0-255)
 
 ```bash
-esphome-lights --set <device> --rgb <r>,<g>,<b>
+esphome-lights --device <device> --rgb <r>,<g>,<b>
 ```
 
 Only works for light entities. Returns an error for switch-type devices.
@@ -94,5 +106,6 @@ were added, removed, or changed. Returns a summary such as
   The location part is lowercased for use in commands (e.g.
   `ESPHOME_LIGHTS_LIVING_ROOM` → `living_room`).
 - If a command fails, check `--list` output for valid device names.
+- Use `all` as the device name to broadcast `--on`/`--off` to every device.
 - Use `--debug` flag for detailed JSON output from the daemon.
 - Use `--bg` flag to fire and forget (return immediately without waiting).

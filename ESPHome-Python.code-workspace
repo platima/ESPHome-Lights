@@ -13,7 +13,8 @@
 			"/^python -m unittest discover -s tests -v 2>&1 \\| Select-Object -First 100$/": {
 				"approve": true,
 				"matchCommandLine": true
-			}
+			},
+			".venv\\Scripts\\python.exe": true
 		}
 	}
 }

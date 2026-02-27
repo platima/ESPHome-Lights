@@ -7,14 +7,16 @@ newline-delimited JSON.  Uses only stdlib modules for fast startup
 (no aioesphomeapi, no protobuf, no cryptography imports).
 
 Usage:
-  esphome-lights.py --list                          # List all lights
-  esphome-lights.py --status                        # Show on/off state
-  esphome-lights.py --set <light-id> --on           # Turn on
-  esphome-lights.py --set <light-id> --off          # Turn off
-  esphome-lights.py --set <light-id> --brightness N # Set brightness (0-255)
-  esphome-lights.py --set <light-id> --rgb r,g,b    # Set RGB colour
-  esphome-lights.py --ping                          # Daemon health check
-  esphome-lights.py --reload                        # Reload daemon config
+  esphome-lights.py --list                               # List all devices
+  esphome-lights.py --status                             # Show on/off state
+  esphome-lights.py --device <id|all> --on               # Turn on
+  esphome-lights.py --device <id|all> --off              # Turn off
+  esphome-lights.py --device <id|all> --brightness N     # Set brightness (0-255)
+  esphome-lights.py --device <id|all> --rgb r,g,b        # Set RGB colour
+  esphome-lights.py --ping                               # Daemon health check
+  esphome-lights.py --reload                             # Reload daemon config
+
+  Use 'all' as the device name to send a command to every device at once.
 
 Flags:
   --bg, --background   Fire and forget (return immediately)
@@ -118,11 +120,16 @@ def main():
     parser = argparse.ArgumentParser(
         description="Control ESPHome smart lights via the esphome-lightsd daemon"
     )
-    parser.add_argument("--list", action="store_true", help="List all configured lights")
+    parser.add_argument("--list", action="store_true", help="List all configured devices")
     parser.add_argument(
-        "--status", action="store_true", help="Show on/off state of all lights"
+        "--status", action="store_true", help="Show on/off state of all devices"
     )
-    parser.add_argument("--set", metavar="DEVICE", help="Light ID to control")
+    parser.add_argument(
+        "--device", metavar="DEVICE",
+        help="Device name to control, or 'all' to target every device",
+    )
+    # --set is kept as a hidden backward-compatible alias for --device
+    parser.add_argument("--set", metavar="DEVICE", dest="device", help=argparse.SUPPRESS)
     parser.add_argument("--on", action="store_true", help="Turn on")
     parser.add_argument("--off", action="store_true", help="Turn off")
     parser.add_argument("--brightness", type=str, help="Set brightness (0-255)")
@@ -178,8 +185,8 @@ def main():
             print(f"Error: {resp.get('error', 'unknown error')}", file=sys.stderr)
             sys.exit(1)
 
-    elif args.set:
-        device = args.set.lower()
+    elif args.device:
+        device = args.device.lower()
 
         if args.on:
             request = {"cmd": "set", "device": device, "action": "on"}
@@ -201,7 +208,7 @@ def main():
             }
         else:
             print(
-                "Error: --set requires --on, --off, --brightness, or --rgb",
+                "Error: --device requires --on, --off, --brightness, or --rgb",
                 file=sys.stderr,
             )
             sys.exit(1)

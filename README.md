@@ -7,7 +7,7 @@ native ESPHome API, designed as an
 [OpenClaw](https://github.com/openclaw/openclaw) skill for
 voice/chat-driven home automation.
 
-**Version:** 0.1.4
+**Version:** 0.1.5
 
 ## Overview
 
@@ -31,7 +31,7 @@ CLI client  —(Unix socket)—>  Daemon  —(persistent ESPHome API connections
 | Daemon                 | `esphome-lightsd.py`      | Persistent connections, state cache  |
 | CLI client             | `esphome-lights.py`       | Thin stdlib-only client, fast start  |
 | systemd unit           | `esphome-lightsd.service` | Auto-start on boot                   |
-| Tests                  | `tests/`                  | Unit tests (49 tests)                |
+| Tests                  | `tests/`                  | Unit tests (63 tests)                |
 | OpenClaw skill         | `SKILL.md`                | Chat-driven control via OpenClaw     |
 
 ## Requirements
@@ -66,7 +66,20 @@ cd ESPHome-Python
 bash install.sh
 ```
 
-The installer will:
+**Options:**
+
+| Flag          | Effect                                                  |
+|---------------|---------------------------------------------------------|
+| *(none)*      | Interactive install/update                              |
+| `--fast`      | Non-interactive: accept all safe defaults, no prompts   |
+| `--uninstall` | Remove the daemon, scripts, service, and OpenClaw link  |
+
+The `--fast` flag is useful for scripting or CI. Safe defaults: auto-create
+OpenClaw skill if detected, skip env template if OpenClaw `.env` exists,
+no prompts.
+
+`--uninstall` stops + disables the service, removes scripts and symlinks,
+and offers to remove the venv (default: remove) and config dir (default: keep).
 
 1. Refuse to run as root.
 2. Install scripts to `~/.local/lib/esphome-lights/` with symlinks in `~/.local/bin/`.
@@ -118,8 +131,8 @@ You can also export variables in your shell or place a `.env` file one
 directory above the script:
 
 ```bash
-export ESPHOME_LIGHTS_LIVING_ROOM="10.42.40.55:6053|J+YkHH7XC+4dQwWvPoF5kaz7tP4NY4HJNTL0QyZM1Rg="
-export ESPHOME_LIGHTS_BEDROOM="10.42.40.56:6053|another_key_here="
+export ESPHOME_LIGHTS_LIVING_ROOM="192.168.1.101:6053|A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3x4Y5z6A7b8C9d0="
+export ESPHOME_LIGHTS_BEDROOM="192.168.1.102:6053|Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2H1g0F9e8D7c6B5a4Z3y2X1w0="
 ```
 
 ## Usage
@@ -144,15 +157,19 @@ esphome-lights --list
 # Show on/off state of all lights (from daemon cache - instant)
 esphome-lights --status
 
-# Turn a light on or off
-esphome-lights --set living_room --on
-esphome-lights --set living_room --off
+# Turn a light/switch on or off
+esphome-lights --device living_room --on
+esphome-lights --device living_room --off
+
+# Turn ALL devices on or off at once
+esphome-lights --device all --on
+esphome-lights --device all --off
 
 # Set brightness (0-255)
-esphome-lights --set living_room --brightness 128
+esphome-lights --device living_room --brightness 128
 
 # Set RGB colour (r,g,b, each 0-255)
-esphome-lights --set living_room --rgb 255,0,0
+esphome-lights --device living_room --rgb 255,0,0
 
 # Health check
 esphome-lights --ping
@@ -165,8 +182,11 @@ esphome-lights --reload
 
 | Flag                   | Effect                                          |
 |------------------------|-------------------------------------------------|
+| `--device DEVICE`      | Device name to control, or `all` for every device |
 | `--bg`, `--background` | Fire and forget - return immediately            |
 | `--debug`              | Show full JSON response (overrides `--bg`)      |
+
+> `--set` is kept as a backward-compatible alias for `--device`.
 
 ## Entity Handling
 
@@ -189,6 +209,7 @@ newline-delimited JSON.
 {"cmd": "list"}
 {"cmd": "status"}
 {"cmd": "set", "device": "living_room", "action": "on"}
+{"cmd": "set", "device": "all", "action": "on"}
 {"cmd": "set", "device": "living_room", "action": "brightness", "value": "128"}
 {"cmd": "set", "device": "living_room", "action": "rgb", "value": "255,0,0"}
 {"cmd": "ping"}
@@ -243,7 +264,7 @@ repo for manual system-wide installs (requires root).
 
 | Metric                  | Current | Target    |
 |-------------------------|---------|-----------|
-| `--set` command         | ~4.2 s  | < 100 ms  |
+| `--device` command      | ~4.2 s  | < 100 ms  |
 | `--status` (all devices)| ~5–8 s  | < 50 ms   |
 | `--list`                | ~1.5 s  | < 50 ms   |
 | CLI client startup      | ~1.5 s  | < 30 ms   |
@@ -310,8 +331,12 @@ simple with no heavy frameworks.
 python3 -m unittest discover -s tests -v
 ```
 
-49 tests covering daemon command handlers, socket protocol, entity resolution,
-state caching, and client-daemon integration.
+63 tests covering daemon command handlers, socket protocol, entity resolution,
+state caching, client-daemon integration, and all-device wildcard broadcast.
+
+> **Platform note:** Tests are developed and CI'd on Linux. 8 tests that
+> exercise Unix domain socket I/O show as ERRORs on Windows/macOS (Unix
+> sockets are not available). All 63 tests pass on Linux.
 
 ## File Structure
 

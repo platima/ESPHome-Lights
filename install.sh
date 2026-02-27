@@ -30,13 +30,16 @@
 set -euo pipefail
 
 UNINSTALL=0
+FAST=0
 for arg in "$@"; do
     case "$arg" in
         --uninstall) UNINSTALL=1 ;;
+        --fast)      FAST=1 ;;
         -h|--help)
-            echo "Usage: bash install.sh [--uninstall]"
-            echo "  (no args)    Install / update ESPHome Lights"
+            echo "Usage: bash install.sh [--uninstall] [--fast]"
+            echo "  (no args)    Install / update ESPHome Lights (interactive)"
             echo "  --uninstall  Remove ESPHome Lights from this system"
+            echo "  --fast       Non-interactive: accept all safe defaults"
             exit 0
             ;;
         *) echo "Unknown option: $arg" >&2; exit 1 ;;
@@ -59,18 +62,18 @@ ok()    { printf '\033[1;32m[+]\033[0m %s\n' "$*"; }
 warn()  { printf '\033[1;33m[!]\033[0m %s\n' "$*"; }
 die()   { printf '\033[1;31m[✗]\033[0m %s\n' "$*" >&2; exit 1; }
 
-# Prompt y/n — defaults to 'n' if stdin is not a terminal (non-interactive).
+# Prompt y/n — defaults to the given default if stdin is not a terminal
+# (non-interactive) or if --fast was passed.
 ask_yn() {
     local prompt="$1" default="${2:-n}"
-    if [[ ! -t 0 ]]; then
-        # Non-interactive: use the default quietly
+    if [[ ! -t 0 ]] || [[ $FAST -eq 1 ]]; then
         [[ "$default" == "y" ]] && return 0 || return 1
     fi
     local yn
     [[ "$default" == "y" ]] && prompt="$prompt [Y/n] " || prompt="$prompt [y/N] "
     read -rp "$prompt" yn
     yn="${yn:-$default}"
-    [[ "${yn,,}" == "y" ]]
+    [[  "${yn,,}" == "y" ]]
 }
 
 # ---------------------------------------------------------------------------
@@ -86,10 +89,10 @@ _create_env_template() {
 # - Port is usually 6053 (the native ESPHome API port).
 # - The encryption key is the Noise PSK shown in your ESPHome device config.
 #
-# Add one line per device. Examples:
+# Add one line per device. Examples (replace with your actual values):
 #
-# ESPHOME_LIGHTS_LIVING_ROOM="10.42.40.55:6053|J+YkHH7XC+4dQwWvPoF5kaz7tP4NY4HJNTL0QyZM1Rg="
-# ESPHOME_LIGHTS_BEDROOM="10.42.40.56:6053|another_key_here="
+# ESPHOME_LIGHTS_LIVING_ROOM="192.168.1.101:6053|A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3x4Y5z6A7b8C9d0="
+# ESPHOME_LIGHTS_BEDROOM="192.168.1.102:6053|Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2H1g0F9e8D7c6B5a4Z3y2X1w0="
 EOF
     ok "Template created at $ENV_FILE"
     warn "Edit $ENV_FILE to add your devices before starting the daemon."
@@ -139,8 +142,11 @@ do_uninstall() {
     # 6. Optionally keep or remove the Python 3.11 venv
     VENV_DIR="$INSTALL_LIB/venv"
     KEEP_VENV=1
+    # In fast mode, default to removing the venv (clean uninstall)
+    local venv_default="y"
+    [[ $FAST -eq 1 ]] && venv_default="n"
     if [[ -d "$VENV_DIR" ]]; then
-        if ask_yn "Keep the Python 3.11 venv at $VENV_DIR? (saves re-downloading packages on reinstall)" "y"; then
+        if ask_yn "Keep the Python 3.11 venv at $VENV_DIR? (saves re-downloading packages on reinstall)" "$venv_default"; then
             ok "Venv kept at $VENV_DIR"
             KEEP_VENV=1
         else
@@ -174,7 +180,6 @@ do_uninstall() {
         fi
     fi
 
-    echo
     ok "Uninstall complete."
     if [[ $KEEP_VENV -eq 1 && -d "$VENV_DIR" ]]; then
         info "Venv retained at $VENV_DIR — re-run the installer to restore everything."
@@ -191,7 +196,6 @@ do_uninstall() {
 
 echo
 info "ESPHome Lights installer"
-echo
 
 # 1. Refuse to run as root
 [[ $EUID -ne 0 ]] || die "Do not run this installer as root or with sudo."
@@ -453,7 +457,6 @@ fi
 # Done
 # ---------------------------------------------------------------------------
 
-echo
 ok "Installation complete!"
 echo
 info "Next steps:"
