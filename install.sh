@@ -206,13 +206,18 @@ if ! "$VENV_PYTHON" -c "import aioesphomeapi" 2>/dev/null; then
     "$VENV_PYTHON" -m pip install --upgrade pip --quiet
     "$VENV_PYTHON" -m pip install aioesphomeapi \
         || die "pip install failed. Try manually: $VENV_PYTHON -m pip install aioesphomeapi"
-    # Force-reinstall noiseprotocol: the 'noise' (Perlin) package installs into
-    # the same noise/ directory and silently breaks encryption if installed first.
-    "$VENV_PYTHON" -m pip install --force-reinstall noiseprotocol
     ok "aioesphomeapi installed in venv."
 else
     ok "aioesphomeapi already installed in venv."
 fi
+
+# Always force-reinstall noiseprotocol: the 'noise' (Perlin) package installs
+# into the same noise/ directory and silently breaks Noise encryption if it
+# ends up installed after noiseprotocol. Running this on every install is safe
+# and cheap, and guards against the venv being in a broken state.
+"$VENV_PYTHON" -m pip install --force-reinstall noiseprotocol --quiet \
+    && ok "noiseprotocol verified." \
+    || warn "noiseprotocol reinstall failed - encryption may not work."
 
 # ---------------------------------------------------------------------------
 # Device config / env file
