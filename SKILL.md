@@ -6,7 +6,6 @@ metadata:
     "openclaw": {
       "requires": {
         "bins": ["bash", "python3"],
-        "config": ["tools.exec.enabled"]
       },
       "user-invocable": true
     }
