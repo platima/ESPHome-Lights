@@ -1,15 +1,16 @@
 ---
 name: esphome-lights
-description: Control ESPHome smart lights and switches - on/off, brightness, RGB colour, and status queries
+description: Control ESPHome smart lights and switches on the local network - on/off, brightness, RGB colour, and status queries
+homepage: https://github.com/platima/ESPHome-Lights
 metadata:
-  {
-    "openclaw": {
-      "requires": {
-        "bins": ["bash", "python3"],
-      },
-      "user-invocable": true
-    }
-  }
+  clawdbot:
+    emoji: "💡"
+    requires:
+      bins: ["esphome-lights", "bash", "python3"]
+      env: ["ESPHOME_LIGHTS_LOCATION"]
+    primaryEnv: "ESPHOME_LIGHTS_LOCATION"
+    files: ["esphome-lights", "esphome-lights.py", "esphome-lightsd.py"]
+    user-invocable: true
 ---
 
 # ESPHome Lights
@@ -18,6 +19,40 @@ Control ESPHome smart lights and switches via the native ESPHome API. The
 `esphome-lights` shell CLI sends commands directly to the daemon socket via
 `socat` or `nc` for sub-10ms response times on ARM targets. Python is used
 only for `--list`/`--status` output formatting.
+
+## External Endpoints
+
+| Endpoint | Protocol | Data Sent | Purpose |
+|----------|----------|-----------|---------|
+| `<device-ip>:6053` (local network only) | ESPHome native API (Noise/protobuf, TCP) | Device commands (on/off/brightness/rgb) | Control ESPHome smart devices |
+
+**No internet endpoints are called.** All communication is to ESPHome devices
+on the local network. The device IP addresses and encryption keys are
+configured by the user in `ESPHOME_LIGHTS_*` environment variables.
+
+## Security & Privacy
+
+- **All traffic is local-network only** — no data leaves the machine or LAN
+- **Encryption keys never leave the host** — Noise PSKs are stored in env vars and used only for the ESPHome Noise protocol handshake with the device
+- **No telemetry, no logging to external services**
+- **Daemon socket** (`$XDG_RUNTIME_DIR/esphome-lights.sock`) is local Unix socket, permissions `0o660` (owner + group only)
+- **Commands are fire-and-forget** — the daemon sends the command; no state is returned to the agent beyond success/failure
+
+## Model Invocation Note
+
+This skill is designed for autonomous invocation by an AI agent in response
+to natural-language requests (e.g. "turn on the living room light"). The agent
+uses the `exec` tool to run `esphome-lights` commands. No user confirmation is
+required for individual light control commands. If you prefer to require
+confirmation before any device command, disable autonomous tool use in your
+OpenClaw agent settings.
+
+## Trust Statement
+
+This skill communicates exclusively with ESPHome devices on your **local
+network** using credentials you configure. No data is sent to any third party,
+cloud service, or external API. Only install this skill if your OpenClaw agent
+has access to the local network where your ESPHome devices reside.
 
 ## Available Commands
 
