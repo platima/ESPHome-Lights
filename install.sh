@@ -7,15 +7,15 @@
 # Must NOT be run as root.
 #
 # One-line install:
-#   bash <(curl -fsSL https://raw.githubusercontent.com/platima/ESPHome-Python/main/install.sh)
-#   bash <(wget -qO- https://raw.githubusercontent.com/platima/ESPHome-Python/main/install.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/platima/ESPHome-Lights/main/install.sh)
+#   bash <(wget -qO- https://raw.githubusercontent.com/platima/ESPHome-Lights/main/install.sh)
 #
 # Or, if you have already cloned the repo:
 #   bash install.sh
 #
 # Uninstall:
 #   bash install.sh --uninstall
-#   bash <(curl -fsSL https://raw.githubusercontent.com/platima/ESPHome-Python/main/install.sh) --uninstall
+#   bash <(curl -fsSL https://raw.githubusercontent.com/platima/ESPHome-Lights/main/install.sh) --uninstall
 #
 # Install layout:
 #   Scripts:   ~/.local/lib/esphome-lights/
@@ -46,7 +46,7 @@ for arg in "$@"; do
     esac
 done
 
-REPO_URL="https://github.com/platima/ESPHome-Python.git"
+REPO_URL="https://github.com/platima/ESPHome-Lights.git"
 INSTALL_LIB="$HOME/.local/lib/esphome-lights"
 INSTALL_BIN="$HOME/.local/bin"
 CONFIG_DIR="$HOME/.config/esphome-lights"
@@ -396,7 +396,7 @@ SOCKET_PATH_DISPLAY="\$XDG_RUNTIME_DIR/esphome-lights.sock"
 cat > "$SERVICE_DIR/$SERVICE_NAME" << EOF
 [Unit]
 Description=ESPHome Lights Daemon
-Documentation=https://github.com/platima/ESPHome-Python
+Documentation=https://github.com/platima/ESPHome-Lights
 After=network-online.target
 Wants=network-online.target
 

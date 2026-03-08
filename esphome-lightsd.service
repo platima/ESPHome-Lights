@@ -9,7 +9,7 @@
 
 [Unit]
 Description=ESPHome Lights Daemon
-Documentation=https://github.com/platima/ESPHome-Python
+Documentation=https://github.com/platima/ESPHome-Lights
 After=network-online.target
 Wants=network-online.target
 

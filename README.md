@@ -1,4 +1,4 @@
-<img align="right" src="https://visitor-badge.laobi.icu/badge?page_id=platima.esphome-python" height="20" />
+<img align="right" src="https://visitor-badge.laobi.icu/badge?page_id=platima.esphome-lights" height="20" />
 
 # ESPHome Lights for Python / OpenClaw
 
@@ -58,16 +58,16 @@ will check for dependencies, create a config template, and optionally register
 the OpenClaw skill.
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/platima/ESPHome-Python/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/platima/ESPHome-Lights/main/install.sh)
 # or
-bash <(wget -qO- https://raw.githubusercontent.com/platima/ESPHome-Python/main/install.sh)
+bash <(wget -qO- https://raw.githubusercontent.com/platima/ESPHome-Lights/main/install.sh)
 ```
 
 Or, if you have already cloned the repo:
 
 ```bash
-git clone https://github.com/platima/ESPHome-Python.git
-cd ESPHome-Python
+git clone https://github.com/platima/ESPHome-Lights.git
+cd ESPHome-Lights
 bash install.sh
 ```
 
@@ -307,7 +307,7 @@ OpenClaw skill. To install:
 1. Clone this repository into your OpenClaw workspace's `skills/` directory,
    or symlink it:
    ```bash
-   ln -s /path/to/ESPHome-Python ~/.openclaw/skills/esphome-lights
+   ln -s /path/to/ESPHome-Lights ~/.openclaw/skills/esphome-lights
    ```
 2. Ensure `ESPHOME_LIGHTS_*` environment variables are available to the
    OpenClaw agent (via the skill's env config or the agent's environment).
@@ -350,7 +350,7 @@ state caching, client-daemon integration, and all-device wildcard broadcast.
 ## File Structure
 
 ```
-ESPHome-Python/
+ESPHome-Lights/
 ├── install.sh                  # One-line installer (user-level, no sudo)
 ├── esphome-lights              # Shell CLI wrapper (fast path: socat/nc)
 ├── esphome-lights.py           # Python CLI (list/status formatting, fallback)

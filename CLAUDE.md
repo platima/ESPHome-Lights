@@ -264,7 +264,7 @@ instructions). Key metadata fields:
 manually:
 
 ```bash
-ln -s /path/to/ESPHome-Python ~/.openclaw/skills/esphome-lights
+ln -s /path/to/ESPHome-Lights ~/.openclaw/skills/esphome-lights
 ```
 
 Ensure `ESPHOME_LIGHTS_*` env vars are available to the agent.
