@@ -166,3 +166,6 @@ next session picks up from here.
       default `esphome-lights` command
 - [x] Update README, CLAUDE.md, TODO.md with shell wrapper docs
 - [x] Bump to v0.1.7
+- [x] Rename repo from ESPHome-Python to ESPHome-Lights; update all URLs,
+      badge, service Documentation= field, CLAUDE.md, README.md
+- [x] Bump to v0.2.0 (MINOR — shell wrapper milestone + rename)
