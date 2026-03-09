@@ -93,6 +93,7 @@ so that SIGHUP-triggered reloads pick up changes immediately.
 - Example:
   ```
   ESPHOME_LIGHTS_LIVING_ROOM="192.168.1.101:6053|A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3x4Y5z6A7b8C9d0="
+  ESPHOME_LIGHTS_LOG_FILE="none"   # set to none/off/false/0 to disable file logging
   ```
 
 ## CLI Interface
@@ -271,14 +272,14 @@ Ensure `ESPHOME_LIGHTS_*` env vars are available to the agent.
 
 ## Current State
 
-- **Version:** 0.2.1
+- **Version:** 0.2.2
 - **Status:** Shell CLI wrapper + daemon architecture. Control commands (on/off/brightness/rgb/ping/reload) achieve sub-10ms response times via socat/nc on ARM.
 - The shell wrapper (`esphome-lights`) handles all control commands natively; delegates `--list`/`--status`/`--debug` to `esphome-lights.py`.
 - The Python CLI (`esphome-lights.py`) is retained for complex output formatting and as a universal fallback.
 - The daemon (`esphome-lightsd.py`) maintains persistent connections and serves commands via a Unix domain socket.
 - `install.sh` installs as a systemd user service (no sudo required), checks for config, and offers OpenClaw skill registration. Supports `--fast` (non-interactive) and `--uninstall` flags.
 - `--device all` broadcasts commands to every device at once.
-- 63 unit tests covering daemon handlers, socket protocol, entity resolution, state caching, client-daemon integration, and all-device wildcard broadcast.
+- 75 unit tests covering daemon handlers, socket protocol, entity resolution, state caching, client-daemon integration, all-device wildcard broadcast, file logging config, and command audit logging.
 
 ## Known Limitations
 

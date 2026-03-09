@@ -37,6 +37,7 @@ Reload:
 import asyncio
 import json
 import logging
+import logging.handlers
 import os
 import signal
 import sys
@@ -47,13 +48,69 @@ from aioesphomeapi import APIClient
 # Logging
 # ---------------------------------------------------------------------------
 
-LOG_LEVEL = os.environ.get("ESPHOME_LIGHTS_LOG_LEVEL", "INFO").upper()
+# Values that disable file logging when set in ESPHOME_LIGHTS_LOG_FILE.
+_LOG_FILE_DISABLED_VALUES = frozenset({"none", "off", "false", "0", "no", ""})
+
+# Daemon version — read once at import time from the VERSION file.
+_VERSION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")
+try:
+    with open(_VERSION_FILE) as _vf:
+        _DAEMON_VERSION = _vf.read().strip()
+except OSError:
+    _DAEMON_VERSION = "unknown"
+
+# Basic console handler — active immediately so startup messages are visible
+# even before _configure_logging() adds the file handler.
 logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger("esphome-lightsd")
+
+
+def _configure_logging():
+    """Attach a rotating file handler and apply the configured log level.
+
+    Called from main() after load_env() so that ESPHOME_LIGHTS_LOG_FILE
+    and ESPHOME_LIGHTS_LOG_LEVEL can be sourced from the env file.
+
+    File logging is enabled by default.  Set ESPHOME_LIGHTS_LOG_FILE to
+    'none', 'off', 'false', or '0' to disable.  Set it to a custom path
+    to override the default location:
+        ~/.local/share/esphome-lights/esphome-lightsd.log
+
+    Rotation: 1 MB per file, 3 backups (~4 MB total on disk).
+    """
+    # Re-apply log level now that the env file has been loaded.
+    log_level_str = os.environ.get("ESPHOME_LIGHTS_LOG_LEVEL", "INFO").upper()
+    log_level = getattr(logging, log_level_str, logging.INFO)
+    logging.getLogger().setLevel(log_level)
+
+    log_file_env = os.environ.get("ESPHOME_LIGHTS_LOG_FILE", "").strip()
+    if log_file_env.lower() in _LOG_FILE_DISABLED_VALUES:
+        if log_file_env:  # Only log if explicitly set, not just absent
+            log.debug("File logging disabled via ESPHOME_LIGHTS_LOG_FILE=%s", log_file_env)
+        return
+
+    log_file = log_file_env or os.path.join(
+        os.path.expanduser("~"), ".local", "share", "esphome-lights", "esphome-lightsd.log"
+    )
+    log_dir = os.path.dirname(log_file)
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+        file_handler = logging.handlers.RotatingFileHandler(
+            log_file, maxBytes=1_048_576, backupCount=3, encoding="utf-8"
+        )
+        file_handler.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)-8s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        ))
+        file_handler.setLevel(log_level)
+        logging.getLogger().addHandler(file_handler)
+        log.debug("File logging active: %s", log_file)
+    except OSError as exc:
+        log.warning("Could not set up file logging to %s: %s", log_file, exc)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -124,6 +181,7 @@ def load_devices():
         if key.startswith("ESPHOME_LIGHTS_") and key not in (
             "ESPHOME_LIGHTS_SOCKET",
             "ESPHOME_LIGHTS_LOG_LEVEL",
+            "ESPHOME_LIGHTS_LOG_FILE",
         ):
             location = key[15:].lower()
             try:
@@ -275,6 +333,9 @@ class DeviceManager:
                 "rgb": None,
                 "entity_type": "switch",
             }
+        else:
+            return
+        log.debug("State update for %s: %s", name, self._state_cache.get(name))
 
     # -- reconnection --------------------------------------------------------
 
@@ -473,6 +534,34 @@ class DeviceManager:
 
 
 # ---------------------------------------------------------------------------
+# Command audit helper
+# ---------------------------------------------------------------------------
+
+
+def _audit_cmd(cmd: str, request: dict, response: dict):
+    """Log a single-line audit entry for every dispatched command.
+
+    Format:  cmd=<cmd> [device=<d>] [action=<a>] [value=<v>] → ok|error: <msg>
+    Long results (e.g. list/status payloads) are truncated to 120 characters.
+    """
+    parts = [f"cmd={cmd}"]
+    if "device" in request:
+        parts.append(f"device={request['device']}")
+    if "action" in request:
+        parts.append(f"action={request['action']}")
+    if "value" in request:
+        parts.append(f"value={request['value']}")
+    prefix = " ".join(parts)
+    if response.get("ok"):
+        result_str = str(response.get("result", ""))
+        if len(result_str) > 120:
+            result_str = result_str[:117] + "..."
+        log.info("%s → ok: %s", prefix, result_str)
+    else:
+        log.info("%s → error: %s", prefix, response.get("error", ""))
+
+
+# ---------------------------------------------------------------------------
 # Socket server
 # ---------------------------------------------------------------------------
 
@@ -558,31 +647,38 @@ class SocketServer:
         """Route a parsed JSON request to the appropriate handler."""
         cmd = request.get("cmd")
         if cmd is None:
-            return {"ok": False, "error": "Missing 'cmd' field"}
+            response = {"ok": False, "error": "Missing 'cmd' field"}
+            _audit_cmd("<missing>", request, response)
+            return response
 
         if cmd == "list":
-            return self._manager.handle_list()
+            response = self._manager.handle_list()
         elif cmd == "status":
-            return self._manager.handle_status()
+            response = self._manager.handle_status()
         elif cmd == "ping":
-            return self._manager.handle_ping()
+            response = self._manager.handle_ping()
         elif cmd == "reload":
             load_env()
             new_devices = load_devices()
             if not new_devices:
-                return {"ok": False, "error": "No devices found in config after reload"}
-            return await self._manager.handle_reload(new_devices)
+                response = {"ok": False, "error": "No devices found in config after reload"}
+            else:
+                response = await self._manager.handle_reload(new_devices)
         elif cmd == "set":
             device = request.get("device")
             action = request.get("action")
             value = request.get("value")
             if not device:
-                return {"ok": False, "error": "Missing 'device' field"}
-            if not action:
-                return {"ok": False, "error": "Missing 'action' field"}
-            return self._manager.handle_set(device, action, value)
+                response = {"ok": False, "error": "Missing 'device' field"}
+            elif not action:
+                response = {"ok": False, "error": "Missing 'action' field"}
+            else:
+                response = self._manager.handle_set(device, action, value)
         else:
-            return {"ok": False, "error": f"Unknown command '{cmd}'"}
+            response = {"ok": False, "error": f"Unknown command '{cmd}'"}
+
+        _audit_cmd(cmd, request, response)
+        return response
 
 
 # ---------------------------------------------------------------------------
@@ -592,13 +688,19 @@ class SocketServer:
 
 async def main():
     load_env()
+    _configure_logging()
     devices = load_devices()
 
     if not devices:
         log.error("No devices configured (set ESPHOME_LIGHTS_* environment variables)")
         sys.exit(1)
 
-    log.info("Found %d device(s): %s", len(devices), ", ".join(sorted(devices)))
+    log.info(
+        "Daemon starting v%s — %d device(s): %s",
+        _DAEMON_VERSION,
+        len(devices),
+        ", ".join(sorted(devices)),
+    )
 
     manager = DeviceManager(devices)
     server = SocketServer(manager)

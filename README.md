@@ -7,7 +7,7 @@ native ESPHome API, designed as an
 [OpenClaw](https://github.com/openclaw/openclaw) skill for
 voice/chat-driven home automation.
 
-**Version:** 0.2.1
+**Version:** 0.2.2
 
 ## Overview
 
@@ -243,6 +243,8 @@ a summary string such as `added: 0, removed: 0, changed: 1, unchanged: 1`.
 - **Graceful shutdown** on SIGTERM/SIGINT (cleans up socket file)
 - **Stale socket detection** - removes orphaned socket files on startup
 - **Configurable logging** via `ESPHOME_LIGHTS_LOG_LEVEL` env var
+- **Persistent log file** with automatic rotation (default on; see [Log File](#log-file))
+- **Command audit log** — every socket command and its result is logged at INFO
 - **Live reload** via `--reload` or SIGHUP without restarting the daemon
 
 ### systemd
@@ -265,6 +267,37 @@ journalctl --user -u esphome-lightsd -f
 
 A system-level unit file (`esphome-lightsd.service`) is also included in the
 repo for manual system-wide installs (requires root).
+
+### Log File
+
+The daemon writes a persistent log to:
+
+```
+~/.local/share/esphome-lights/esphome-lightsd.log
+```
+
+Logs rotate automatically at 1 MB with 3 backups kept (~4 MB total).
+
+| Env Var | Default | Effect |
+|---|---|---|
+| `ESPHOME_LIGHTS_LOG_FILE` | `~/.local/share/esphome-lights/esphome-lightsd.log` | Override path, or set to `none`/`off`/`false`/`0` to disable |
+| `ESPHOME_LIGHTS_LOG_LEVEL` | `INFO` | Applies to both console and file output |
+
+To disable file logging:
+
+```bash
+export ESPHOME_LIGHTS_LOG_FILE=none
+```
+
+Or set it in your config file (`~/.config/esphome-lights/env`).
+
+The file handler uses a padded level format for readability:
+
+```
+2026-03-09 14:23:01 [INFO    ] Daemon starting v0.2.2 — 2 device(s): bedroom, living_room
+2026-03-09 14:23:15 [INFO    ] cmd=set device=living_room action=on → ok: Turned ON
+2026-03-09 14:23:30 [WARNING ] bedroom: lost connection
+```
 
 ### Performance
 
@@ -340,12 +373,13 @@ simple with no heavy frameworks.
 python3 -m unittest discover -s tests -v
 ```
 
-63 tests covering daemon command handlers, socket protocol, entity resolution,
-state caching, client-daemon integration, and all-device wildcard broadcast.
+75 tests covering daemon command handlers, socket protocol, entity resolution,
+state caching, client-daemon integration, all-device wildcard broadcast, file
+logging configuration, and command audit logging.
 
 > **Platform note:** Tests are developed and CI'd on Linux. 8 tests that
 > exercise Unix domain socket I/O show as ERRORs on Windows/macOS (Unix
-> sockets are not available). All 63 tests pass on Linux.
+> sockets are not available). All 75 tests pass on Linux.
 
 ## File Structure
 
@@ -357,7 +391,7 @@ ESPHome-Lights/
 ├── esphome-lightsd.py          # Daemon (persistent connections + socket)
 ├── esphome-lightsd.service     # systemd unit file (system-level reference)
 ├── tests/
-│   ├── test_daemon.py          # Daemon unit tests (51 tests)
+│   ├── test_daemon.py          # Daemon unit tests (63 tests)
 │   └── test_client.py          # Client unit + integration tests (12 tests)
 ├── SKILL.md                    # OpenClaw skill definition
 ├── CLAUDE.md                   # AI assistant context

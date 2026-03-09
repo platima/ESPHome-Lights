@@ -9,6 +9,8 @@ ESPHome devices.  Network-level connection behaviour is tested via mocks.
 import asyncio
 import importlib
 import json
+import logging
+import logging.handlers
 import os
 import sys
 import tempfile
@@ -119,12 +121,14 @@ class TestLoadDevices(unittest.TestCase):
         env = {
             "ESPHOME_LIGHTS_SOCKET": "/tmp/test.sock",
             "ESPHOME_LIGHTS_LOG_LEVEL": "DEBUG",
+            "ESPHOME_LIGHTS_LOG_FILE": "/tmp/test.log",
             "ESPHOME_LIGHTS_REAL": "1.2.3.4:6053|k",
         }
         with patch.dict(os.environ, env, clear=True):
             devices = daemon.load_devices()
         self.assertNotIn("socket", devices)
         self.assertNotIn("log_level", devices)
+        self.assertNotIn("log_file", devices)
         self.assertIn("real", devices)
 
     def test_skips_invalid_format(self):
@@ -724,6 +728,185 @@ class TestSocketRoundTrip(unittest.TestCase):
                 await server.stop()
 
         asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# _configure_logging
+# ---------------------------------------------------------------------------
+
+
+class TestConfigureLogging(unittest.TestCase):
+    """Test _configure_logging() file handler setup."""
+
+    def _strip_file_handlers(self):
+        """Remove any RotatingFileHandlers left by previous test runs."""
+        root = logging.getLogger()
+        for h in list(root.handlers):
+            if isinstance(h, logging.handlers.RotatingFileHandler):
+                h.close()
+                root.removeHandler(h)
+
+    def setUp(self):
+        self._strip_file_handlers()
+
+    def tearDown(self):
+        self._strip_file_handlers()
+
+    def test_file_handler_added_when_path_set(self):
+        """A RotatingFileHandler is attached when a valid log path is given."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "test.log")
+            with patch.dict(os.environ, {"ESPHOME_LIGHTS_LOG_FILE": log_path}, clear=False):
+                daemon._configure_logging()
+            file_handlers = [
+                h for h in logging.getLogger().handlers
+                if isinstance(h, logging.handlers.RotatingFileHandler)
+            ]
+            self.assertEqual(len(file_handlers), 1)
+            self.assertEqual(file_handlers[0].baseFilename, log_path)
+            # Close and remove handlers before tmpdir exit to avoid
+            # Windows file-locking errors when the temp dir is deleted.
+            self._strip_file_handlers()
+
+    def test_file_logging_disabled_via_none(self):
+        """Setting ESPHOME_LIGHTS_LOG_FILE=none disables file logging."""
+        with patch.dict(os.environ, {"ESPHOME_LIGHTS_LOG_FILE": "none"}, clear=False):
+            daemon._configure_logging()
+        file_handlers = [
+            h for h in logging.getLogger().handlers
+            if isinstance(h, logging.handlers.RotatingFileHandler)
+        ]
+        self.assertEqual(len(file_handlers), 0)
+
+    def test_file_logging_disabled_via_off(self):
+        """Setting ESPHOME_LIGHTS_LOG_FILE=off disables file logging."""
+        with patch.dict(os.environ, {"ESPHOME_LIGHTS_LOG_FILE": "off"}, clear=False):
+            daemon._configure_logging()
+        file_handlers = [
+            h for h in logging.getLogger().handlers
+            if isinstance(h, logging.handlers.RotatingFileHandler)
+        ]
+        self.assertEqual(len(file_handlers), 0)
+
+    def test_file_logging_disabled_case_insensitive(self):
+        """Disabled values are matched case-insensitively."""
+        for val in ("NONE", "OFF", "False", "0", "NO"):
+            with self.subTest(val=val):
+                self._strip_file_handlers()
+                with patch.dict(os.environ, {"ESPHOME_LIGHTS_LOG_FILE": val}, clear=False):
+                    daemon._configure_logging()
+                file_handlers = [
+                    h for h in logging.getLogger().handlers
+                    if isinstance(h, logging.handlers.RotatingFileHandler)
+                ]
+                self.assertEqual(len(file_handlers), 0, f"Expected no handler for LOG_FILE={val}")
+
+    def test_log_dir_created_if_missing(self):
+        """Missing parent directories are created automatically."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "subdir", "nested", "daemon.log")
+            with patch.dict(os.environ, {"ESPHOME_LIGHTS_LOG_FILE": log_path}, clear=False):
+                daemon._configure_logging()
+            self.assertTrue(os.path.isdir(os.path.dirname(log_path)))
+            # Close and remove handlers before tmpdir exit to avoid
+            # Windows file-locking errors when the temp dir is deleted.
+            self._strip_file_handlers()
+
+    def test_oserror_on_dir_creation_logs_warning(self):
+        """An OSError during dir creation emits a warning but does not raise."""
+        with patch.dict(os.environ, {"ESPHOME_LIGHTS_LOG_FILE": "/no_such_root/a/b.log"}, clear=False):
+            # This path is intentionally unwritable; just verify no exception propagates.
+            try:
+                daemon._configure_logging()
+            except Exception as exc:  # noqa: BLE001
+                self.fail(f"_configure_logging() raised unexpectedly: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Command audit logging
+# ---------------------------------------------------------------------------
+
+
+class TestCommandAuditLogging(unittest.TestCase):
+    """Test that _dispatch emits a structured audit log line for each command."""
+
+    def setUp(self):
+        self.mgr = _make_manager()
+        self.server = daemon.SocketServer(self.mgr, "/tmp/test.sock")
+
+    def test_ping_is_logged(self):
+        """ping produces an audit line containing 'cmd=ping'."""
+        with self.assertLogs("esphome-lightsd", level="INFO") as cm:
+            asyncio.run(self.server._dispatch({"cmd": "ping"}))
+        self.assertTrue(any("cmd=ping" in line for line in cm.output))
+
+    def test_set_on_logs_device_and_action(self):
+        """set command logs device and action in the audit line."""
+        self.mgr._conn_state = {"living_room": "connected", "bedroom": "connected"}
+        self.mgr._clients = {"living_room": MagicMock(), "bedroom": MagicMock()}
+        self.mgr._entity_info = {
+            "living_room": {"key": 1, "type": "light"},
+            "bedroom": {"key": 2, "type": "switch"},
+        }
+        with self.assertLogs("esphome-lightsd", level="INFO") as cm:
+            asyncio.run(self.server._dispatch(
+                {"cmd": "set", "device": "living_room", "action": "on"}
+            ))
+        self.assertTrue(
+            any("cmd=set" in line and "device=living_room" in line and "action=on" in line
+                for line in cm.output)
+        )
+
+    def test_set_brightness_logs_value(self):
+        """set brightness command includes the value in the audit line."""
+        self.mgr._conn_state = {"living_room": "connected", "bedroom": "connected"}
+        self.mgr._clients = {"living_room": MagicMock(), "bedroom": MagicMock()}
+        self.mgr._entity_info = {
+            "living_room": {"key": 1, "type": "light"},
+            "bedroom": {"key": 2, "type": "switch"},
+        }
+        with self.assertLogs("esphome-lightsd", level="INFO") as cm:
+            asyncio.run(self.server._dispatch(
+                {"cmd": "set", "device": "living_room", "action": "brightness", "value": "128"}
+            ))
+        self.assertTrue(
+            any("value=128" in line for line in cm.output)
+        )
+
+    def test_error_result_is_logged(self):
+        """Failed commands log an error indicator in the audit line."""
+        with self.assertLogs("esphome-lightsd", level="INFO") as cm:
+            asyncio.run(self.server._dispatch(
+                {"cmd": "set", "device": "nonexistent", "action": "on"}
+            ))
+        self.assertTrue(
+            any("→ error:" in line for line in cm.output)
+        )
+
+    def test_reload_is_logged(self):
+        """reload command produces an audit line containing 'cmd=reload'."""
+        _fake_devices = {
+            "living_room": {"host": "10.0.0.1", "port": 6053, "encryption_key": "abc"}
+        }
+
+        async def run():
+            with patch.object(daemon, "load_env"), \
+                 patch.object(daemon, "load_devices", return_value=_fake_devices), \
+                 patch.object(self.mgr, "handle_reload",
+                              new=AsyncMock(return_value={"ok": True, "result": "0 added"})):
+                with self.assertLogs("esphome-lightsd", level="INFO") as cm:
+                    await self.server._dispatch({"cmd": "reload"})
+            self.assertTrue(any("cmd=reload" in line for line in cm.output))
+
+        asyncio.run(run())
+
+    def test_unknown_cmd_is_logged(self):
+        """Unknown commands are still logged with the error indicator."""
+        with self.assertLogs("esphome-lightsd", level="INFO") as cm:
+            asyncio.run(self.server._dispatch({"cmd": "explode"}))
+        self.assertTrue(
+            any("cmd=explode" in line and "→ error:" in line for line in cm.output)
+        )
 
 
 if __name__ == "__main__":

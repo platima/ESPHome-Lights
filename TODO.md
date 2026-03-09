@@ -8,6 +8,7 @@ next session picks up from here.
 ## Future / Nice to Have
 
 - [ ] Benchmark daemon performance on the Luckfox Pico target hardware.
+- [ ] Add `--log-file` CLI override flag for ad-hoc log path without env var.
 - [ ] Evaluate Python 3.14 free-threaded support for async performance gains.
 - [ ] Test OpenClaw skill loading against a live OpenClaw agent.
 - [ ] Add shell CLI tests (bash bats or similar) for the socat/nc fast path.
@@ -168,4 +169,20 @@ next session picks up from here.
 - [x] Bump to v0.1.7
 - [x] Rename repo from ESPHome-Python to ESPHome-Lights; update all URLs,
       badge, service Documentation= field, CLAUDE.md, README.md
+
+### Phase 7: Persistent file logging (v0.2.2)
+
+- [x] Add `_configure_logging()` — RotatingFileHandler (1 MB, 3 backups, ~4 MB
+      total) attached after `load_env()` so env-file path/disable settings apply
+- [x] Default log location: `~/.local/share/esphome-lights/esphome-lightsd.log`
+- [x] `ESPHOME_LIGHTS_LOG_FILE` env var — override path or set to
+      none/off/false/0 to disable; excluded from `load_devices()` parsing
+- [x] Command audit logging in `SocketServer._dispatch()` — every command and
+      its result logged at INFO with structured `cmd= device= action= → ok/error`
+      format; long results (list/status) truncated to 120 chars
+- [x] Daemon version logged at startup via `_DAEMON_VERSION` constant (reads
+      VERSION file once at import time)
+- [x] DEBUG log line in `_handle_state()` for state change updates
+- [x] 12 new tests (TestConfigureLogging × 6, TestCommandAuditLogging × 6)
+- [x] Update README.md, CLAUDE.md, TODO.md, VERSION → 0.2.2
 - [x] Bump to v0.2.0 (MINOR — shell wrapper milestone + rename)
