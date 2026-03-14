@@ -220,6 +220,15 @@ _stop_service() {
 # Copy scripts and VERSION from SOURCE_DIR to INSTALL_LIB and update symlinks.
 _install_scripts() {
     mkdir -p "$INSTALL_LIB" "$INSTALL_BIN"
+    # Remove stale directories or symlinks-to-directories that conflict with
+    # file copies.  Previous installs may have left a directory where a regular
+    # file is now expected (e.g. esphome-lights/ vs the shell wrapper file).
+    local _f
+    for _f in esphome-lights esphome-lights.py esphome-lightsd.py SKILL.md VERSION; do
+        if [[ -e "$INSTALL_LIB/$_f" && ! -f "$INSTALL_LIB/$_f" ]]; then
+            rm -rf "$INSTALL_LIB/$_f"
+        fi
+    done
     cp "$SOURCE_DIR/esphome-lights"     "$INSTALL_LIB/"
     cp "$SOURCE_DIR/esphome-lights.py"  "$INSTALL_LIB/"
     cp "$SOURCE_DIR/esphome-lightsd.py" "$INSTALL_LIB/"
@@ -679,29 +688,7 @@ fi
 _stop_service
 
 info "Installing scripts to $INSTALL_LIB ..."
-mkdir -p "$INSTALL_LIB" "$INSTALL_BIN"
-cp "$SOURCE_DIR/esphome-lights"     "$INSTALL_LIB/"
-cp "$SOURCE_DIR/esphome-lights.py"  "$INSTALL_LIB/"
-cp "$SOURCE_DIR/esphome-lightsd.py" "$INSTALL_LIB/"
-cp "$SOURCE_DIR/SKILL.md"           "$INSTALL_LIB/"
-cp "$SOURCE_DIR/VERSION"            "$INSTALL_LIB/"
-chmod +x "$INSTALL_LIB/esphome-lights" \
-         "$INSTALL_LIB/esphome-lights.py" \
-         "$INSTALL_LIB/esphome-lightsd.py"
-
-# Symlinks in ~/.local/bin so the commands are on PATH.
-# esphome-lights  -> shell wrapper (fast path: socat/nc, ~10ms)
-# esphome-lightsd -> Python daemon
-ln -sf "$INSTALL_LIB/esphome-lights"    "$INSTALL_BIN/esphome-lights"
-ln -sf "$INSTALL_LIB/esphome-lightsd.py" "$INSTALL_BIN/esphome-lightsd"
-ok "Scripts installed (v$(cat "$INSTALL_LIB/VERSION" 2>/dev/null || echo "unknown"))."
-
-# Warn if ~/.local/bin is not on PATH
-if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-    warn "$HOME/.local/bin is not in your PATH."
-    warn "Add this line to your shell profile (~/.profile, ~/.bashrc, etc.):"
-    warn "  export PATH=\"\$HOME/.local/bin:\$PATH\""
-fi
+_install_scripts
 
 # ---------------------------------------------------------------------------
 # Python venv + dependencies

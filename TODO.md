@@ -228,3 +228,11 @@ next session picks up from here.
       pattern instead of bare `esphome-lights`
 - [x] Added explicit note: never call `esphome-lights.py` directly
 - [x] Update CLAUDE.md, TODO.md, VERSION → 0.3.1
+
+### Fix: installer cp fails when target is a directory (v0.3.2)
+
+- [x] `_install_scripts()` now removes stale directories/symlinks-to-dirs
+      before copying files (defensive cleanup for leftover state)
+- [x] Main install path refactored to call `_install_scripts()` instead of
+      duplicating cp commands (DRY)
+- [x] Update CLAUDE.md, TODO.md, VERSION → 0.3.2
