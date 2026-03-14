@@ -11,8 +11,6 @@ next session picks up from here.
 - [ ] Add `--log-file` CLI override flag for ad-hoc log path without env var.
 - [ ] Add shell CLI tests (bash bats or similar) for the socat/nc fast path.
 - [ ] Evaluate Python 3.14 free-threaded support for async performance gains.
-- [ ] Test OpenClaw skill loading against a live OpenClaw agent.
-- [ ] Add shell CLI tests (bash bats or similar) for the socat/nc fast path.
 
 ---
 
@@ -215,4 +213,18 @@ next session picks up from here.
       importable, service in failed state — defaults menu to Repair if any found
 - [x] Stop running service before overwriting scripts on fresh-over-existing path
 - [x] Update README.md, CLAUDE.md, TODO.md, VERSION → 0.2.4
-- [x] Bump to v0.2.0 (MINOR — shell wrapper milestone + rename)
+- [x] Bump to v0.3.0 (MINOR — installer lifecycle + OpenClaw multi-target)
+
+### Fix: SKILL.md PATH issue (v0.3.1)
+
+- [x] Tested OpenClaw skill against a live agent — discovered PATH issue
+      (agent couldn't find `esphome-lights` on PATH, fell back to calling
+      `python3 esphome-lights.py` directly, bypassing the fast shell wrapper)
+- [x] Removed `esphome-lights` from `requires.bins` (it's bundled, not a
+      system binary)
+- [x] Added "How to Invoke" section instructing the agent to use the full
+      path to the shell wrapper within the skill directory
+- [x] Updated all command examples to use `bash $SKILL_DIR/esphome-lights`
+      pattern instead of bare `esphome-lights`
+- [x] Added explicit note: never call `esphome-lights.py` directly
+- [x] Update CLAUDE.md, TODO.md, VERSION → 0.3.1

@@ -238,15 +238,17 @@ skill. OpenClaw is a self-hosted AI gateway that bridges messaging platforms
 User (WhatsApp/Telegram/etc.)
   → OpenClaw Gateway
     → Agent (with exec tool)
-      → esphome-lights.py --device living_room --on
+      → bash <skill-dir>/esphome-lights --device living_room --on
         → ESPHome device
 ```
 
 - The `SKILL.md` at the repo root registers ESPHome Lights as an OpenClaw skill.
 - The OpenClaw agent reads the skill definition and uses its `exec` tool to run
-  CLI commands.
-- Natural-language requests like *"turn on the living room"* are translated to
-  the appropriate `esphome-lights.py` invocation automatically.
+  CLI commands via the **shell wrapper** in the skill directory.
+- `SKILL.md` instructs agents to invoke `bash $SKILL_DIR/esphome-lights` using
+  the full path — the command is NOT expected to be on `$PATH`.
+- Natural-language requests like *“turn on the living room”* are translated to
+  the appropriate shell wrapper invocation automatically.
 - OpenClaw's cron system can schedule automated light control (e.g. lights on
   at sunset).
 
@@ -277,7 +279,7 @@ Ensure `ESPHOME_LIGHTS_*` env vars are available to the agent.
 
 ## Current State
 
-- **Version:** 0.3.0
+- **Version:** 0.3.1
 - **Status:** Shell CLI wrapper + daemon architecture. Control commands (on/off/brightness/rgb/ping/reload) achieve sub-10ms response times via socat/nc on ARM.
 - `install.sh` supports `--upgrade` (git pull + update scripts/packages + restart), `--repair` (full reinstall without git pull), and `--uninstall`. Detecting an existing install runs health checks (venv, service file, symlinks, aioesphomeapi import) and defaults to Repair if issues are found.
 - OpenClaw skill installer offers Global / per-agent workspace / custom path with multi-select; upgrade/repair refresh existing links silently.

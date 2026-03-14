@@ -6,7 +6,7 @@ metadata:
   clawdbot:
     emoji: "💡"
     requires:
-      bins: ["esphome-lights", "bash", "python3"]
+      bins: ["bash", "python3"]
       env: ["ESPHOME_LIGHTS_LOCATION"]
     primaryEnv: "ESPHOME_LIGHTS_LOCATION"
     files: ["esphome-lights", "esphome-lights.py", "esphome-lightsd.py"]
@@ -19,6 +19,30 @@ Control ESPHome smart lights and switches via the native ESPHome API. The
 `esphome-lights` shell CLI sends commands directly to the daemon socket via
 `socat` or `nc` for sub-10ms response times on ARM targets. Python is used
 only for `--list`/`--status` output formatting.
+
+## How to Invoke
+
+The `esphome-lights` command is a **shell wrapper bundled in this skill
+directory**. It is NOT a system binary — do not rely on it being in `$PATH`.
+
+Always invoke it using the full path to the script within this skill's
+directory. For example, if this skill is loaded from
+`~/.openclaw/skills/esphome-lights/`, use:
+
+```bash
+bash ~/.openclaw/skills/esphome-lights/esphome-lights <args>
+```
+
+Or if this skill is in a workspace-specific location:
+
+```bash
+bash ~/.openclaw/workspace/skills/esphome-lights/esphome-lights <args>
+```
+
+**Important:** Always use the **shell wrapper** (`esphome-lights`, no `.py`
+extension), not the Python script (`esphome-lights.py`). The shell wrapper
+uses `socat`/`nc` for ~10ms response times; the Python script is ~15x slower
+and is only needed internally for `--list`/`--status` formatting.
 
 ## External Endpoints
 
@@ -56,13 +80,15 @@ has access to the local network where your ESPHome devices reside.
 
 ## Available Commands
 
-Run these via the `exec` tool. Replace `<device>` with the location name
-(lowercased, e.g. `living_room`, `bedroom`).
+Run these via the `exec` tool. In the examples below, `SKILL_DIR` represents
+the path to this skill's directory (e.g. `~/.openclaw/skills/esphome-lights`).
+Replace `<device>` with the location name (lowercased, e.g. `living_room`,
+`bedroom`).
 
 ### List all configured devices
 
 ```bash
-esphome-lights --list
+bash $SKILL_DIR/esphome-lights --list
 ```
 
 Output: one line per device showing `location -> host:port  [connection-state] (entity-type)`.
@@ -70,7 +96,7 @@ Output: one line per device showing `location -> host:port  [connection-state] (
 ### Show on/off state of all devices
 
 ```bash
-esphome-lights --status
+bash $SKILL_DIR/esphome-lights --status
 ```
 
 Output: one line per device showing `location  ON/OFF  (entity-type)`. For lights
@@ -79,31 +105,31 @@ that are ON, brightness (0-255) and RGB values are also shown.
 ### Turn a light/switch on
 
 ```bash
-esphome-lights --device <device> --on
+bash $SKILL_DIR/esphome-lights --device <device> --on
 ```
 
 Use `all` to turn every device on at once:
 
 ```bash
-esphome-lights --device all --on
+bash $SKILL_DIR/esphome-lights --device all --on
 ```
 
 ### Turn a light/switch off
 
 ```bash
-esphome-lights --device <device> --off
+bash $SKILL_DIR/esphome-lights --device <device> --off
 ```
 
 Use `all` to turn every device off at once:
 
 ```bash
-esphome-lights --device all --off
+bash $SKILL_DIR/esphome-lights --device all --off
 ```
 
 ### Set brightness (0-255)
 
 ```bash
-esphome-lights --device <device> --brightness <value>
+bash $SKILL_DIR/esphome-lights --device <device> --brightness <value>
 ```
 
 Only works for light entities. Returns an error for switch-type devices
@@ -112,7 +138,7 @@ Only works for light entities. Returns an error for switch-type devices
 ### Set RGB colour (r,g,b - each 0-255)
 
 ```bash
-esphome-lights --device <device> --rgb <r>,<g>,<b>
+bash $SKILL_DIR/esphome-lights --device <device> --rgb <r>,<g>,<b>
 ```
 
 Only works for light entities. Returns an error for switch-type devices.
@@ -120,7 +146,7 @@ Only works for light entities. Returns an error for switch-type devices.
 ### Health check (daemon mode)
 
 ```bash
-esphome-lights --ping
+bash $SKILL_DIR/esphome-lights --ping
 ```
 
 Returns `pong` if the daemon is running.
@@ -128,7 +154,7 @@ Returns `pong` if the daemon is running.
 ### Reload config (without restarting)
 
 ```bash
-esphome-lights --reload
+bash $SKILL_DIR/esphome-lights --reload
 ```
 
 Instructs the daemon to re-read all env files and reconnect any devices that
@@ -144,3 +170,5 @@ were added, removed, or changed. Returns a summary such as
 - Use `all` as the device name to broadcast `--on`/`--off` to every device.
 - Use `--debug` flag for detailed JSON output from the daemon.
 - Use `--bg` flag to fire and forget (return immediately without waiting).
+- **Do not call `esphome-lights.py` directly** — always use the shell wrapper
+  (`esphome-lights`, no extension) for the fastest response times.
