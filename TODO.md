@@ -245,3 +245,13 @@ next session picks up from here.
 - [x] `_install_scripts()` post-copy validation: warns if installed files
       are not regular files or missing execute permission
 - [x] Update README.md, CLAUDE.md, TODO.md, VERSION → 0.3.3
+
+### Fix: ln -sf follows symlink-to-directory (v0.3.4)
+
+- [x] All `ln -sf` calls changed to `ln -sfn` throughout install.sh
+      (`-n` prevents following existing symlink-to-directory targets)
+- [x] Root cause: `_install_openclaw_skill()` ran `ln -sf $INSTALL_LIB
+      $target/esphome-lights` — when the target already pointed to a
+      directory, `ln` created the link INSIDE the directory, overwriting
+      the shell wrapper file with a symlink back to the parent dir
+- [x] Update CLAUDE.md, TODO.md, VERSION → 0.3.4

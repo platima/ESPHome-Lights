@@ -237,8 +237,8 @@ _install_scripts() {
     chmod +x "$INSTALL_LIB/esphome-lights" \
              "$INSTALL_LIB/esphome-lights.py" \
              "$INSTALL_LIB/esphome-lightsd.py"
-    ln -sf "$INSTALL_LIB/esphome-lights"     "$INSTALL_BIN/esphome-lights"
-    ln -sf "$INSTALL_LIB/esphome-lightsd.py" "$INSTALL_BIN/esphome-lightsd"
+    ln -sfn "$INSTALL_LIB/esphome-lights"     "$INSTALL_BIN/esphome-lights"
+    ln -sfn "$INSTALL_LIB/esphome-lightsd.py" "$INSTALL_BIN/esphome-lightsd"
     # Post-install sanity check: verify key files are regular files.
     # Catches stale directories, broken symlinks, or failed copies.
     local _f
@@ -358,7 +358,7 @@ _install_openclaw_skill() {
         # Refresh existing links without prompting (upgrade / repair path).
         for _target_dir in "${_existing[@]}"; do
             mkdir -p "$_target_dir"
-            ln -sf "$INSTALL_LIB" "$_target_dir/$_skill_name"
+            ln -sfn "$INSTALL_LIB" "$_target_dir/$_skill_name"
             ok "OpenClaw skill refreshed: ${_target_dir/#$HOME/~}/$_skill_name"
         done
         return 0
@@ -369,7 +369,7 @@ _install_openclaw_skill() {
 
     if [[ $FAST -eq 1 ]]; then
         mkdir -p "$_global_skills"
-        ln -sf "$INSTALL_LIB" "$_global_skills/$_skill_name"
+        ln -sfn "$INSTALL_LIB" "$_global_skills/$_skill_name"
         ok "OpenClaw skill linked (global): ~/.openclaw/skills/$_skill_name"
         return 0
     fi
@@ -399,7 +399,7 @@ _install_openclaw_skill() {
         case "${_tok,,}" in
             g|global)
                 mkdir -p "$_global_skills"
-                ln -sf "$INSTALL_LIB" "$_global_skills/$_skill_name"
+                ln -sfn "$INSTALL_LIB" "$_global_skills/$_skill_name"
                 ok "OpenClaw skill linked (global): ~/.openclaw/skills/$_skill_name"
                 ;;
             [1-9]*)
@@ -407,7 +407,7 @@ _install_openclaw_skill() {
                 if [[ "$_idx" -ge 0 ]] && [[ "$_idx" -lt "${#_workspaces[@]}" ]]; then
                     _ws_skills="${_workspaces[$_idx]}/skills"
                     mkdir -p "$_ws_skills"
-                    ln -sf "$INSTALL_LIB" "$_ws_skills/$_skill_name"
+                    ln -sfn "$INSTALL_LIB" "$_ws_skills/$_skill_name"
                     ok "OpenClaw skill linked: ~/${_ws_skills#$HOME/}/$_skill_name"
                 else
                     warn "Invalid choice: $_tok (no workspace at that index)"
@@ -418,7 +418,7 @@ _install_openclaw_skill() {
                 _custom_dir="${_custom_dir/#\~/$HOME}"
                 if [[ -n "$_custom_dir" ]]; then
                     mkdir -p "$_custom_dir"
-                    ln -sf "$INSTALL_LIB" "$_custom_dir/$_skill_name"
+                    ln -sfn "$INSTALL_LIB" "$_custom_dir/$_skill_name"
                     ok "OpenClaw skill linked: ${_custom_dir/#$HOME/~}/$_skill_name"
                 else
                     warn "No path entered — skipped."
