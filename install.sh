@@ -39,19 +39,22 @@ UNINSTALL=0
 UPGRADE=0
 REPAIR=0
 FAST=0
+VERBOSE=0
 for arg in "$@"; do
     case "$arg" in
         --uninstall) UNINSTALL=1 ;;
         --upgrade)   UPGRADE=1 ;;
         --repair)    REPAIR=1 ;;
         --fast)      FAST=1 ;;
+        --verbose)   VERBOSE=1 ;;
         -h|--help)
-            echo "Usage: bash install.sh [--uninstall | --upgrade | --repair] [--fast]"
+            echo "Usage: bash install.sh [--uninstall | --upgrade | --repair] [--fast] [--verbose]"
             echo "  (no args)    Install ESPHome Lights; offers upgrade/repair if already installed"
             echo "  --upgrade    Pull latest changes, update scripts + packages, restart service"
             echo "  --repair     Reinstall scripts, venv, and service from current source"
             echo "  --uninstall  Remove ESPHome Lights from this system"
             echo "  --fast       Non-interactive: accept all safe defaults"
+            echo "  --verbose    Show full output from git and pip commands"
             exit 0
             ;;
         *) echo "Unknown option: $arg" >&2; exit 1 ;;
@@ -455,9 +458,15 @@ do_upgrade() {
     if [[ -n "${SCRIPT_DIR:-}" ]] \
             && git -C "$SCRIPT_DIR" rev-parse --git-dir > /dev/null 2>&1; then
         info "Pulling latest changes from git ..."
-        git -C "$SCRIPT_DIR" pull \
-            && ok "Repository updated." \
-            || warn "git pull failed -- upgrading from current working tree."
+        if [[ $VERBOSE -eq 1 ]]; then
+            git -C "$SCRIPT_DIR" pull \
+                && ok "Repository updated." \
+                || warn "git pull failed -- upgrading from current working tree."
+        else
+            git -C "$SCRIPT_DIR" pull --quiet \
+                && ok "Repository updated." \
+                || warn "git pull failed -- upgrading from current working tree."
+        fi
 
         # Re-exec with the updated install.sh so that any fixes to the
         # installer itself take effect immediately (e.g. new cleanup logic
@@ -468,6 +477,7 @@ do_upgrade() {
             info "Re-executing updated installer ..."
             local _reexec_args=(--upgrade)
             [[ $FAST -eq 1 ]] && _reexec_args+=(--fast)
+            [[ $VERBOSE -eq 1 ]] && _reexec_args+=(--verbose)
             export _ESPHOME_REEXEC=1
             exec bash "$SCRIPT_DIR/install.sh" "${_reexec_args[@]}"
         fi
@@ -630,8 +640,13 @@ else
     info "Cloning repository..."
     TMP_DIR="$(mktemp -d)"
     trap 'rm -rf "$TMP_DIR"' EXIT
-    git clone --depth 1 "$REPO_URL" "$TMP_DIR" \
-        || die "Failed to clone $REPO_URL"
+    if [[ $VERBOSE -eq 1 ]]; then
+        git clone --depth 1 "$REPO_URL" "$TMP_DIR" \
+            || die "Failed to clone $REPO_URL"
+    else
+        git clone --depth 1 --quiet "$REPO_URL" "$TMP_DIR" \
+            || die "Failed to clone $REPO_URL"
+    fi
     SOURCE_DIR="$TMP_DIR"
     ok "Cloned to $TMP_DIR"
 fi

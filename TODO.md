@@ -263,3 +263,11 @@ next session picks up from here.
 - [x] Terminal on Luckfox Pico rendered `→` as `_` due to locale/font
 - [x] Comments left unchanged (not rendered to terminal)
 - [x] Update CLAUDE.md, TODO.md, VERSION → 0.3.5
+
+### Chore: quiet git output + --verbose flag (v0.3.6)
+
+- [x] `git pull` and `git clone` use `--quiet` by default (suppresses
+      object count / delta resolution noise)
+- [x] Added `--verbose` installer flag to restore full git/pip output
+- [x] `--verbose` preserved across re-exec (same as `--fast`)
+- [x] Update README.md, CLAUDE.md, TODO.md, VERSION → 0.3.6
