@@ -16,6 +16,15 @@ next session picks up from here.
 
 ## Completed
 
+### v0.4.1 — On-demand reconnect
+
+- [x] Add `handle_reconnect` / `_reconnect_device` to `DeviceManager` — cancels
+      backoff task and immediately retries the connection.
+- [x] Add `{"cmd": "reconnect", "device": "<name>|all"}` to the daemon socket protocol.
+- [x] Add `--device <name|all> --reconnect` to the bash wrapper and Python CLI.
+- [x] Add 8 new unit tests (dispatch routing + reconnect handler + client integration).
+- [x] Update README, CLAUDE.md, and VERSION (0.4.1).
+
 ### Phase 0: Foundation
 
 - [x] Initial monolithic `esphome-lights.py` (working)

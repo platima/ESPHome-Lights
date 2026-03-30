@@ -107,6 +107,7 @@ esphome-lights --device <id|all> --brightness N    # Set brightness (0-255)
 esphome-lights --device <id|all> --rgb r,g,b       # Set RGB colour
 esphome-lights --device <id|all> --color-temp N    # Set colour temperature (Kelvin)
 esphome-lights --device <id|all> --cwww C,W        # Set cold/warm white (0-255 each)
+esphome-lights --device <id|all> --reconnect       # Force immediate reconnect (skip backoff)
 esphome-lights --ping                              # Health check (daemon mode)
 esphome-lights --reload                            # Reload config without restart
 
@@ -215,6 +216,8 @@ Unix socket at `/tmp/esphome-lights.sock` (configurable via
 {"cmd": "set", "device": "living_room", "action": "cwww", "value": "180,60"}
 {"cmd": "ping"}
 {"cmd": "reload"}
+{"cmd": "reconnect", "device": "living_room"}
+{"cmd": "reconnect", "device": "all"}
 ```
 
 The `reload` command re-reads all env files (priority order), rebuilds the
@@ -309,7 +312,7 @@ Ensure `ESPHOME_LIGHTS_*` env vars are available to the agent.
 - The daemon (`esphome-lightsd.py`) maintains persistent connections and serves commands via a Unix domain socket.
 - `install.sh` installs as a systemd user service (no sudo required), checks for config, and offers OpenClaw skill registration. Supports `--install`, `--fast` (non-interactive), `--verbose`, and `--uninstall` flags.
 - `--device all` broadcasts commands to every device at once.
-- 85 unit tests covering daemon handlers, socket protocol, entity resolution, state caching, client-daemon integration, all-device wildcard broadcast, file logging config, and command audit logging.
+- 93 unit tests covering daemon handlers, socket protocol, entity resolution, state caching, client-daemon integration, all-device wildcard broadcast, file logging config, command audit logging, and reconnect handling.
 
 ## Known Limitations
 

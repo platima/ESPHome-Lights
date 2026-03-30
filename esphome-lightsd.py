@@ -18,6 +18,8 @@ Request examples:
   {"cmd": "set", "device": "living_room", "action": "cwww", "value": "180,60"}
   {"cmd": "ping"}
   {"cmd": "reload"}
+  {"cmd": "reconnect", "device": "living_room"}
+  {"cmd": "reconnect", "device": "all"}
 
 Response format:
   {"ok": true, "result": ...}
@@ -575,6 +577,53 @@ class DeviceManager:
         log.info(summary)
         return {"ok": True, "result": summary}
 
+    async def handle_reconnect(self, device: str) -> dict:
+        """Cancel any pending backoff and immediately reconnect one or all devices.
+
+        Useful when a device has just rebooted and you don't want to wait for
+        the exponential backoff timer to expire before the next retry attempt.
+        Supports device='all' to reconnect every configured device at once.
+        """
+        if device == "all":
+            results = {}
+            for name in sorted(self._devices.keys()):
+                r = await self._reconnect_device(name)
+                results[name] = r["result"] if r["ok"] else r["error"]
+            summary = ", ".join(f"{k}: {v}" for k, v in results.items())
+            return {"ok": True, "result": summary}
+
+        if device not in self._devices:
+            available = ", ".join(sorted(self._devices.keys()))
+            return {"ok": False, "error": f"Device '{device}' not found. Available: {available}"}
+
+        return await self._reconnect_device(device)
+
+    async def _reconnect_device(self, name: str) -> dict:
+        """Cancel pending backoff and immediately reconnect a single device."""
+        # Cancel any in-flight backoff task so it doesn't interfere
+        task = self._reconnect_tasks.pop(name, None)
+        if task and not task.done():
+            task.cancel()
+
+        # Disconnect the existing client cleanly if one is present
+        client = self._clients.pop(name, None)
+        if client:
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+
+        self._conn_state[name] = "disconnected"
+        # Clear stale state so status shows 'unknown' while reconnecting
+        self._state_cache.pop(name, None)
+        log.info("Manual reconnect requested for %s", name)
+
+        await self._connect(name)
+
+        if self._conn_state.get(name) == "connected":
+            return {"ok": True, "result": f"Reconnected to {name}"}
+        return {"ok": False, "error": f"Failed to reconnect to {name}"}
+
 
 # ---------------------------------------------------------------------------
 # Command audit helper
@@ -707,6 +756,9 @@ class SocketServer:
                 response = {"ok": False, "error": "No devices found in config after reload"}
             else:
                 response = await self._manager.handle_reload(new_devices)
+        elif cmd == "reconnect":
+            device = request.get("device", "all")
+            response = await self._manager.handle_reconnect(device)
         elif cmd == "set":
             device = request.get("device")
             action = request.get("action")

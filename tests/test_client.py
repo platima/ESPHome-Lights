@@ -261,5 +261,48 @@ class TestClientSocketMissing(unittest.TestCase):
             self.assertEqual(ctx.exception.code, 1)
 
 
+class TestClientReconnect(unittest.TestCase):
+    """Integration test for the reconnect command."""
+
+    def _run_client_in_thread(self, fd, request):
+        import concurrent.futures
+
+        async def run():
+            loop = asyncio.get_event_loop()
+            with patch.object(esphome_lights, "SOCKET_PATH", fd.sock_path):
+                resp = await loop.run_in_executor(
+                    None,
+                    lambda: esphome_lights.send_command(request),
+                )
+            return resp
+
+        return run()
+
+    def test_reconnect_specific_device(self):
+        """Client sends reconnect for a specific device and gets ok response."""
+
+        async def run():
+            fd = FakeDaemon()
+            await fd.start()
+            try:
+                with patch.object(
+                    fd.manager,
+                    "handle_reconnect",
+                    new=AsyncMock(
+                        return_value={"ok": True, "result": "Reconnected to living_room"}
+                    ),
+                ) as mock_reconnect:
+                    resp = await self._run_client_in_thread(
+                        fd, {"cmd": "reconnect", "device": "living_room"}
+                    )
+                mock_reconnect.assert_called_once_with("living_room")
+                self.assertTrue(resp["ok"])
+                self.assertIn("living_room", resp["result"])
+            finally:
+                await fd.stop()
+
+        asyncio.run(run())
+
+
 if __name__ == "__main__":
     unittest.main()

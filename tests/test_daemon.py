@@ -570,6 +570,37 @@ class TestSocketServerDispatch(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_dispatch_reconnect(self):
+        """reconnect command is routed to handle_reconnect."""
+
+        async def run():
+            with patch.object(
+                self.mgr,
+                "handle_reconnect",
+                new=AsyncMock(return_value={"ok": True, "result": "Reconnected to living_room"}),
+            ) as mock_reconnect:
+                result = await self.server._dispatch(
+                    {"cmd": "reconnect", "device": "living_room"}
+                )
+            mock_reconnect.assert_called_once_with("living_room")
+            self.assertTrue(result["ok"])
+
+        asyncio.run(run())
+
+    def test_dispatch_reconnect_default_all(self):
+        """reconnect without a device field defaults to 'all'."""
+
+        async def run():
+            with patch.object(
+                self.mgr,
+                "handle_reconnect",
+                new=AsyncMock(return_value={"ok": True, "result": "..."}),
+            ) as mock_reconnect:
+                await self.server._dispatch({"cmd": "reconnect"})
+            mock_reconnect.assert_called_once_with("all")
+
+        asyncio.run(run())
+
 
 class TestLoadEnvPriority(unittest.TestCase):
     """Test that load_env loads files in priority order."""
@@ -990,6 +1021,120 @@ class TestCommandAuditLogging(unittest.TestCase):
         self.assertTrue(
             any("cmd=explode" in line and "-> error:" in line for line in cm.output)
         )
+
+
+# ---------------------------------------------------------------------------
+# Reconnect handler
+# ---------------------------------------------------------------------------
+
+
+class TestReconnectHandler(unittest.TestCase):
+    """Test handle_reconnect and _reconnect_device."""
+
+    def _disconnected_manager(self):
+        """Manager with two devices, both disconnected."""
+        mgr = _make_manager()
+        mgr._conn_state = {"living_room": "disconnected", "bedroom": "disconnected"}
+        return mgr
+
+    def _connected_manager(self):
+        """Manager with living_room connected and a mock client."""
+        mgr = _make_manager()
+        client = MagicMock()
+        client.disconnect = AsyncMock()
+        mgr._clients = {"living_room": client}
+        mgr._conn_state = {"living_room": "connected", "bedroom": "disconnected"}
+        mgr._state_cache = {"living_room": {"state": "ON"}}
+        mgr._entity_info = {"living_room": {"key": 1, "type": "light"}}
+        return mgr, client
+
+    def test_reconnect_nonexistent_device(self):
+        """handle_reconnect returns an error for an unknown device name."""
+        mgr = self._disconnected_manager()
+
+        async def run():
+            return await mgr.handle_reconnect("kitchen")
+
+        result = asyncio.run(run())
+        self.assertFalse(result["ok"])
+        self.assertIn("kitchen", result["error"])
+
+    def test_reconnect_cancels_backoff_and_connects(self):
+        """Pending backoff task is cancelled and _connect is called immediately."""
+        mgr = self._disconnected_manager()
+        fake_task = MagicMock()
+        fake_task.done.return_value = False
+        fake_task.cancel = MagicMock()
+        mgr._reconnect_tasks["living_room"] = fake_task
+
+        async def run():
+            with patch.object(mgr, "_connect", new=AsyncMock()) as mock_connect:
+                # Simulate a successful connection after _connect is called
+                async def _set_connected(name):
+                    mgr._conn_state[name] = "connected"
+
+                mock_connect.side_effect = _set_connected
+                result = await mgr.handle_reconnect("living_room")
+            return result, mock_connect
+
+        result, mock_connect = asyncio.run(run())
+        fake_task.cancel.assert_called_once()
+        mock_connect.assert_called_once_with("living_room")
+        self.assertTrue(result["ok"])
+        self.assertIn("living_room", result["result"])
+        self.assertNotIn("living_room", mgr._reconnect_tasks)
+
+    def test_reconnect_disconnects_existing_client(self):
+        """An existing connected client is disconnected before reconnecting."""
+        mgr, old_client = self._connected_manager()
+
+        async def run():
+            with patch.object(mgr, "_connect", new=AsyncMock()) as mock_connect:
+                async def _set_connected(name):
+                    mgr._conn_state[name] = "connected"
+
+                mock_connect.side_effect = _set_connected
+                result = await mgr.handle_reconnect("living_room")
+            return result
+
+        result = asyncio.run(run())
+        old_client.disconnect.assert_called_once()
+        # State cache should have been cleared before reconnect
+        self.assertNotIn("living_room", mgr._state_cache)
+        self.assertTrue(result["ok"])
+
+    def test_reconnect_returns_error_on_failed_connect(self):
+        """Returns ok=False when the connection attempt fails."""
+        mgr = self._disconnected_manager()
+
+        async def run():
+            with patch.object(mgr, "_connect", new=AsyncMock()):
+                # _connect leaves state as 'disconnected' (simulates failure)
+                result = await mgr.handle_reconnect("living_room")
+            return result
+
+        result = asyncio.run(run())
+        self.assertFalse(result["ok"])
+        self.assertIn("living_room", result["error"])
+
+    def test_reconnect_all(self):
+        """device='all' attempts reconnect on every configured device."""
+        mgr = self._disconnected_manager()
+
+        async def run():
+            with patch.object(mgr, "_connect", new=AsyncMock()) as mock_connect:
+                async def _set_connected(name):
+                    mgr._conn_state[name] = "connected"
+
+                mock_connect.side_effect = _set_connected
+                result = await mgr.handle_reconnect("all")
+            return result, mock_connect
+
+        result, mock_connect = asyncio.run(run())
+        self.assertTrue(result["ok"])
+        self.assertEqual(mock_connect.call_count, 2)
+        self.assertIn("living_room", result["result"])
+        self.assertIn("bedroom", result["result"])
 
 
 if __name__ == "__main__":

@@ -199,6 +199,10 @@ esphome-lights --ping
 
 # Reload config without restarting the daemon
 esphome-lights --reload
+
+# Force immediate reconnect (skip backoff timer)
+esphome-lights --device living_room --reconnect
+esphome-lights --device all --reconnect
 ```
 
 ### Flags
@@ -262,6 +266,7 @@ a summary string such as `added: 0, removed: 0, changed: 1, unchanged: 1`.
 
 - **Persistent connections** to all configured ESPHome devices
 - **Automatic reconnection** with exponential backoff (1 s to 30 s max)
+- **On-demand reconnect** via `--device <name> --reconnect` — cancels backoff and retries immediately
 - **State caching** - `--status` returns instantly from cache
 - **Multiple concurrent clients** supported
 - **Graceful shutdown** on SIGTERM/SIGINT (cleans up socket file)

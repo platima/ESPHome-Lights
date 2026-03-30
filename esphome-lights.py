@@ -149,6 +149,11 @@ def main():
     parser.add_argument("--ping", action="store_true", help="Daemon health check")
     parser.add_argument("--reload", action="store_true", help="Reload daemon configuration")
     parser.add_argument(
+        "--reconnect",
+        action="store_true",
+        help="Cancel backoff and immediately reconnect a device (use with --device)",
+    )
+    parser.add_argument(
         "--bg",
         "--background",
         action="store_true",
@@ -202,6 +207,15 @@ def main():
 
     elif args.reload:
         resp = send_command({"cmd": "reload"})
+        if resp and resp.get("ok"):
+            print(resp["result"])
+        elif resp:
+            print(f"Error: {resp.get('error', 'unknown error')}", file=sys.stderr)
+            sys.exit(1)
+
+    elif args.reconnect:
+        device = (args.device or "all").lower()
+        resp = send_command({"cmd": "reconnect", "device": device})
         if resp and resp.get("ok"):
             print(resp["result"])
         elif resp:

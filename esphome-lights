@@ -22,6 +22,7 @@
 #   esphome-lights --device <id|all> --cwww C,W       (cold,warm 0-255)
 #   esphome-lights --ping
 #   esphome-lights --reload
+#   esphome-lights --device <id|all> --reconnect
 #
 # Flags:
 #   --bg, --background   Fire and forget (return immediately)
@@ -164,6 +165,10 @@ while [[ $# -gt 0 ]]; do
             _ok "$RESP" && _result "$RESP"
             exit $?
             ;;
+        --reconnect)
+            shift
+            ACTION="reconnect"
+            ;;
         --device|--set)
             shift
             DEVICE="${1:-}"
@@ -221,12 +226,14 @@ done
 # ---------------------------------------------------------------------------
 
 [[ -n "$DEVICE" ]] || _die "No command given. Use --help for usage."
-[[ -n "$ACTION" ]] || _die "--device requires --on, --off, --brightness, --rgb, --color-temp, or --cwww"
+[[ -n "$ACTION" ]] || _die "--device requires --on, --off, --brightness, --rgb, --color-temp, --cwww, or --reconnect"
 
 # Lowercase the device name to match the daemon's key format
 DEVICE="${DEVICE,,}"
 
-if [[ -n "$VALUE" ]]; then
+if [[ "$ACTION" == "reconnect" ]]; then
+    JSON="{\"cmd\":\"reconnect\",\"device\":\"${DEVICE}\"}"
+elif [[ -n "$VALUE" ]]; then
     JSON="{\"cmd\":\"set\",\"device\":\"${DEVICE}\",\"action\":\"${ACTION}\",\"value\":\"${VALUE}\"}"
 else
     JSON="{\"cmd\":\"set\",\"device\":\"${DEVICE}\",\"action\":\"${ACTION}\"}"
