@@ -1137,5 +1137,318 @@ class TestReconnectHandler(unittest.TestCase):
         self.assertIn("bedroom", result["result"])
 
 
+# ---------------------------------------------------------------------------
+# WebServer HTTP routes
+# ---------------------------------------------------------------------------
+
+
+class _FakeWriter:
+    """Minimal async writer mock that captures bytes written to it.
+
+    Used by TestWebServerRoutes to inspect HTTP responses without
+    requiring a real TCP connection.
+    """
+
+    def __init__(self):
+        self._buf = b""
+        self.closed = False
+
+    def write(self, data: bytes):
+        self._buf += data
+
+    async def drain(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+    async def wait_closed(self):
+        pass
+
+    def status_code(self) -> int:
+        """Parse the HTTP response status code from the buffer."""
+        first = self._buf[: self._buf.index(b"\r\n")]
+        return int(first.split()[1])
+
+    def response_body(self) -> dict:
+        """Parse the JSON body from the HTTP response buffer."""
+        sep = self._buf.index(b"\r\n\r\n")
+        return json.loads(self._buf[sep + 4 :].decode("utf-8"))
+
+    def raw_body(self) -> bytes:
+        """Return the raw (non-decoded) response body bytes."""
+        sep = self._buf.index(b"\r\n\r\n")
+        return self._buf[sep + 4 :]
+
+    def content_type(self) -> str:
+        """Return the Content-Type header value."""
+        header_block = self._buf[: self._buf.index(b"\r\n\r\n")].decode()
+        for line in header_block.split("\r\n"):
+            if line.lower().startswith("content-type:"):
+                return line.split(":", 1)[1].strip()
+        return ""
+
+
+def _make_web_server():
+    """Build a WebServer with a pre-populated DeviceManager for route tests."""
+    mgr = _make_manager()
+    mgr._conn_state = {"living_room": "connected", "bedroom": "disconnected"}
+    mgr._entity_info = {
+        "living_room": {"key": 1, "type": "light"},
+        "bedroom": {"key": 2, "type": "switch"},
+    }
+    return daemon.WebServer(mgr, "127.0.0.1", 7890), mgr
+
+
+class TestWebServerRoutes(unittest.TestCase):
+    """Test WebServer HTTP route dispatch via _route() with a fake writer."""
+
+    def test_get_root_returns_html(self):
+        ws, _ = _make_web_server()
+        w = _FakeWriter()
+        asyncio.run(ws._route(w, "GET", "/", b""))
+        self.assertEqual(w.status_code(), 200)
+        self.assertIn("text/html", w.content_type())
+        self.assertIn(b"ESPHome Lights", w.raw_body())
+
+    def test_get_favicon_returns_204(self):
+        ws, _ = _make_web_server()
+        w = _FakeWriter()
+        asyncio.run(ws._route(w, "GET", "/favicon.ico", b""))
+        self.assertEqual(w.status_code(), 204)
+
+    def test_get_api_list(self):
+        ws, _ = _make_web_server()
+        w = _FakeWriter()
+        asyncio.run(ws._route(w, "GET", "/api/list", b""))
+        self.assertEqual(w.status_code(), 200)
+        body = w.response_body()
+        self.assertTrue(body["ok"])
+        self.assertIn("living_room", body["result"])
+
+    def test_get_api_status(self):
+        ws, _ = _make_web_server()
+        w = _FakeWriter()
+        asyncio.run(ws._route(w, "GET", "/api/status", b""))
+        self.assertEqual(w.status_code(), 200)
+        self.assertTrue(w.response_body()["ok"])
+
+    def test_get_api_ping(self):
+        ws, _ = _make_web_server()
+        w = _FakeWriter()
+        asyncio.run(ws._route(w, "GET", "/api/ping", b""))
+        self.assertEqual(w.status_code(), 200)
+        self.assertEqual(w.response_body()["result"], "pong")
+
+    def test_post_api_set_on(self):
+        ws, mgr = _make_web_server()
+        mgr._clients = {"living_room": MagicMock(), "bedroom": MagicMock()}
+        w = _FakeWriter()
+        payload = json.dumps({"device": "living_room", "action": "on"}).encode()
+        asyncio.run(ws._route(w, "POST", "/api/set", payload))
+        self.assertEqual(w.status_code(), 200)
+        self.assertTrue(w.response_body()["ok"])
+
+    def test_post_api_set_missing_device(self):
+        ws, _ = _make_web_server()
+        w = _FakeWriter()
+        asyncio.run(ws._route(w, "POST", "/api/set", json.dumps({"action": "on"}).encode()))
+        self.assertEqual(w.status_code(), 400)
+        body = w.response_body()
+        self.assertFalse(body["ok"])
+        self.assertIn("device", body["error"].lower())
+
+    def test_post_api_set_missing_action(self):
+        ws, _ = _make_web_server()
+        w = _FakeWriter()
+        asyncio.run(ws._route(w, "POST", "/api/set", json.dumps({"device": "living_room"}).encode()))
+        self.assertEqual(w.status_code(), 400)
+        body = w.response_body()
+        self.assertFalse(body["ok"])
+        self.assertIn("action", body["error"].lower())
+
+    def test_post_api_set_invalid_json(self):
+        ws, _ = _make_web_server()
+        w = _FakeWriter()
+        asyncio.run(ws._route(w, "POST", "/api/set", b"not valid json"))
+        self.assertEqual(w.status_code(), 400)
+        self.assertFalse(w.response_body()["ok"])
+
+    def test_post_api_set_device_error_returns_400(self):
+        """A set command that fails (e.g. device not connected) returns HTTP 400."""
+        ws, _ = _make_web_server()
+        w = _FakeWriter()
+        payload = json.dumps({"device": "bedroom", "action": "brightness", "value": "128"}).encode()
+        asyncio.run(ws._route(w, "POST", "/api/set", payload))
+        # bedroom is disconnected so the command fails -> HTTP 400
+        self.assertEqual(w.status_code(), 400)
+        self.assertFalse(w.response_body()["ok"])
+
+    def test_post_api_reconnect_named_device(self):
+        ws, mgr = _make_web_server()
+        w = _FakeWriter()
+        payload = json.dumps({"device": "living_room"}).encode()
+        with patch.object(
+            mgr, "handle_reconnect",
+            new=AsyncMock(return_value={"ok": True, "result": "Reconnected to living_room"}),
+        ) as mock_reconnect:
+            asyncio.run(ws._route(w, "POST", "/api/reconnect", payload))
+        mock_reconnect.assert_called_once_with("living_room")
+        self.assertEqual(w.status_code(), 200)
+
+    def test_post_api_reconnect_defaults_to_all(self):
+        """reconnect with empty body defaults device to 'all'."""
+        ws, mgr = _make_web_server()
+        w = _FakeWriter()
+        with patch.object(
+            mgr, "handle_reconnect",
+            new=AsyncMock(return_value={"ok": True, "result": "..."}),
+        ) as mock_reconnect:
+            asyncio.run(ws._route(w, "POST", "/api/reconnect", b"{}"))
+        mock_reconnect.assert_called_once_with("all")
+
+    def test_post_api_reload(self):
+        ws, mgr = _make_web_server()
+        w = _FakeWriter()
+        _fake_devices = {
+            "living_room": {"host": "10.0.0.1", "port": 6053, "encryption_key": "abc"}
+        }
+        with patch.object(daemon, "load_env"), \
+             patch.object(daemon, "load_devices", return_value=_fake_devices), \
+             patch.object(mgr, "handle_reload",
+                          new=AsyncMock(return_value={"ok": True, "result": "0 added"})):
+            asyncio.run(ws._route(w, "POST", "/api/reload", b""))
+        self.assertEqual(w.status_code(), 200)
+        self.assertTrue(w.response_body()["ok"])
+
+    def test_unknown_path_returns_404(self):
+        ws, _ = _make_web_server()
+        w = _FakeWriter()
+        asyncio.run(ws._route(w, "GET", "/does/not/exist", b""))
+        self.assertEqual(w.status_code(), 404)
+        self.assertFalse(w.response_body()["ok"])
+
+    def test_unknown_method_returns_405(self):
+        ws, _ = _make_web_server()
+        w = _FakeWriter()
+        asyncio.run(ws._route(w, "DELETE", "/api/list", b""))
+        self.assertEqual(w.status_code(), 405)
+        self.assertFalse(w.response_body()["ok"])
+
+    def test_query_string_stripped(self):
+        """Query strings are stripped so the path still matches cleanly."""
+        ws, _ = _make_web_server()
+        w = _FakeWriter()
+        asyncio.run(ws._route(w, "GET", "/api/ping?foo=bar", b""))
+        self.assertEqual(w.status_code(), 200)
+        self.assertEqual(w.response_body()["result"], "pong")
+
+    def test_max_body_constant_is_reasonable(self):
+        """_MAX_BODY should cap at 64 KB to guard against oversized bodies."""
+        self.assertGreater(daemon.WebServer._MAX_BODY, 0)
+        self.assertLessEqual(daemon.WebServer._MAX_BODY, 65_536)
+
+    def test_web_ui_contains_version(self):
+        """The inline HTML should embed the daemon version string."""
+        self.assertIn(daemon._DAEMON_VERSION.encode(), daemon._WEB_UI_BYTES)
+
+    def test_web_server_env_vars_excluded_from_devices(self):
+        """ESPHOME_LIGHTS_WEB_PORT and WEB_BIND are not parsed as device entries."""
+        env = {
+            "ESPHOME_LIGHTS_WEB_PORT": "7890",
+            "ESPHOME_LIGHTS_WEB_BIND": "0.0.0.0",
+            "ESPHOME_LIGHTS_REAL": "1.2.3.4:6053|k",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            devices = daemon.load_devices()
+        self.assertNotIn("web_port", devices)
+        self.assertNotIn("web_bind", devices)
+        self.assertIn("real", devices)
+
+
+# ---------------------------------------------------------------------------
+# SSE subscriber push mechanism
+# ---------------------------------------------------------------------------
+
+
+class TestSSESubscribers(unittest.TestCase):
+    """Test that state changes are pushed to registered SSE subscriber queues."""
+
+    def test_state_change_notifies_subscriber(self):
+        """A state update should place a status snapshot on the subscriber queue."""
+        mgr = _make_manager()
+        mgr._entity_info = {"living_room": {"key": 1, "type": "light"}}
+        mgr._conn_state = {"living_room": "connected", "bedroom": "disconnected"}
+
+        q = asyncio.Queue()
+        mgr._sse_subscribers.append(q)
+
+        state = _fake_light_state(key=1, state=True, brightness=0.5)
+        mgr._handle_state("living_room", state)
+
+        self.assertFalse(q.empty())
+        item = q.get_nowait()
+        self.assertTrue(item["ok"])
+        self.assertIn("living_room", item["result"])
+
+    def test_no_subscribers_no_error(self):
+        """State change with no SSE subscribers should not raise."""
+        mgr = _make_manager()
+        mgr._entity_info = {"living_room": {"key": 1, "type": "light"}}
+        state = _fake_light_state(key=1, state=True)
+        # Should not raise; _sse_subscribers is empty
+        mgr._handle_state("living_room", state)
+        self.assertEqual(mgr._sse_subscribers, [])
+
+    def test_multiple_subscribers_all_notified(self):
+        """Every registered subscriber queue receives the update."""
+        mgr = _make_manager()
+        mgr._entity_info = {"living_room": {"key": 1, "type": "light"}}
+        mgr._conn_state = {"living_room": "connected"}
+
+        q1, q2, q3 = asyncio.Queue(), asyncio.Queue(), asyncio.Queue()
+        mgr._sse_subscribers.extend([q1, q2, q3])
+
+        state = _fake_light_state(key=1, state=False)
+        mgr._handle_state("living_room", state)
+
+        self.assertFalse(q1.empty())
+        self.assertFalse(q2.empty())
+        self.assertFalse(q3.empty())
+
+    def test_subscriber_receives_full_status_snapshot(self):
+        """The pushed item is a full handle_status() snapshot (ok+result)."""
+        mgr = _make_manager()
+        mgr._entity_info = {"living_room": {"key": 1, "type": "light"}}
+        mgr._conn_state = {"living_room": "connected", "bedroom": "disconnected"}
+
+        q = asyncio.Queue()
+        mgr._sse_subscribers.append(q)
+
+        state = _fake_light_state(key=1, state=True, brightness=1.0)
+        mgr._handle_state("living_room", state)
+
+        item = q.get_nowait()
+        # Must be in the same shape as handle_status() output
+        self.assertIn("ok", item)
+        self.assertIn("result", item)
+        self.assertIn("living_room", item["result"])
+        self.assertIn("bedroom", item["result"])
+
+    def test_switch_state_change_notifies_subscriber(self):
+        """Switch state changes should also push to SSE subscribers."""
+        mgr = _make_manager()
+        mgr._entity_info = {"bedroom": {"key": 2, "type": "switch"}}
+        mgr._conn_state = {"bedroom": "connected", "living_room": "disconnected"}
+
+        q = asyncio.Queue()
+        mgr._sse_subscribers.append(q)
+
+        state = _fake_switch_state(key=2, state=True)
+        mgr._handle_state("bedroom", state)
+
+        self.assertFalse(q.empty())
+
+
 if __name__ == "__main__":
     unittest.main()

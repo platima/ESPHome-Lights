@@ -36,6 +36,17 @@ Configuration (loaded in priority order, highest wins):
 Reload:
   Send SIGHUP or {"cmd": "reload"} to re-read config files and reconnect
   added/changed/removed devices without restarting the daemon.
+
+Web interface (disabled by default):
+  Set ESPHOME_LIGHTS_WEB_PORT to a non-zero port to enable a browser-based
+  control UI with real-time updates via Server-Sent Events.
+
+  ESPHOME_LIGHTS_WEB_PORT=7890        (optional; 0 = disabled, the default)
+  ESPHOME_LIGHTS_WEB_BIND="127.0.0.1" (optional; defaults to localhost only)
+
+  Suggested port: 7890 (not used by WHMCS/Immich/Frigate/Home Assistant/ESPHome).
+  Set WEB_BIND=0.0.0.0 to expose the UI on the LAN.  No authentication is
+  provided; rely on network-level access controls for LAN exposure.
 """
 
 import asyncio
@@ -186,6 +197,8 @@ def load_devices():
             "ESPHOME_LIGHTS_SOCKET",
             "ESPHOME_LIGHTS_LOG_LEVEL",
             "ESPHOME_LIGHTS_LOG_FILE",
+            "ESPHOME_LIGHTS_WEB_PORT",
+            "ESPHOME_LIGHTS_WEB_BIND",
         ):
             location = key[15:].lower()
             try:
@@ -218,6 +231,7 @@ class DeviceManager:
         self._state_cache: dict[str, dict] = {}  # Cached entity state per device
         self._entity_info: dict[str, dict] = {}  # Control key/type per device
         self._reconnect_tasks: dict[str, asyncio.Task] = {}
+        self._sse_subscribers: list[asyncio.Queue] = []  # Web interface SSE queues
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -348,6 +362,12 @@ class DeviceManager:
         else:
             return
         log.debug("State update for %s: %s", name, self._state_cache.get(name))
+
+        # Notify web interface SSE subscribers with a full status snapshot
+        if self._sse_subscribers:
+            snapshot = self.handle_status()
+            for q in list(self._sse_subscribers):
+                q.put_nowait(snapshot)
 
     # -- reconnection --------------------------------------------------------
 
@@ -777,6 +797,536 @@ class SocketServer:
 
 
 # ---------------------------------------------------------------------------
+# Web interface — inline single-page HTML/CSS/JS
+# ---------------------------------------------------------------------------
+
+# Raw HTML template.  __VERSION__ is replaced with _DAEMON_VERSION at import
+# time so all requests see the correct version without runtime overhead.
+_WEB_UI_HTML_RAW = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>ESPHome Lights</title>
+<style>
+/* === Solarized colour palette === */
+:root{
+  --s-base03:#002b36;--s-base02:#073642;--s-base01:#586e75;--s-base00:#657b83;
+  --s-base0:#839496;--s-base1:#93a1a1;--s-base2:#eee8d5;--s-base3:#fdf6e3;
+  --s-yellow:#b58900;--s-orange:#cb4b16;--s-red:#dc322f;--s-magenta:#d33682;
+  --s-violet:#6c71c4;--s-blue:#268bd2;--s-cyan:#2aa198;--s-green:#859900;
+}
+/* Light theme (system default) */
+@media(prefers-color-scheme:light){:root{
+  --bg:var(--s-base3);--bg-alt:var(--s-base2);
+  --text:var(--s-base00);--emph:var(--s-base01);
+  --subtle:var(--s-base1);--border:var(--s-base2);
+}}
+/* Dark theme */
+@media(prefers-color-scheme:dark){:root{
+  --bg:var(--s-base03);--bg-alt:var(--s-base02);
+  --text:var(--s-base0);--emph:var(--s-base1);
+  --subtle:var(--s-base01);--border:var(--s-base02);
+}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif;font-size:16px;line-height:1.5}
+/* Header */
+header{background:var(--bg-alt);border-bottom:2px solid var(--s-blue);padding:12px 16px;display:flex;align-items:center;gap:12px}
+header h1{font-size:1.2rem;color:var(--emph);flex:1}
+#sseStatus{font-size:.8rem;color:var(--subtle)}
+#sseStatus.ok::before{content:'\\25CF  ';color:var(--s-green)}
+#sseStatus.err::before{content:'\\25CF  ';color:var(--s-red)}
+/* Device grid — responsive, minimum 300 px per card */
+main{padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;align-items:start}
+/* Device cards */
+.card{background:var(--bg-alt);border:1px solid var(--border);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:10px;border-left:4px solid var(--subtle)}
+.card.state-on{border-left-color:var(--s-green)}
+.card.state-off{border-left-color:var(--subtle)}
+/* Card header row */
+.card-hdr{display:flex;align-items:center;gap:8px}
+.card-name{font-weight:600;color:var(--emph);flex:1;text-transform:capitalize;font-size:1rem}
+.badge{font-size:.7rem;padding:2px 8px;border-radius:10px;font-weight:700}
+.badge.connected{background:var(--s-green);color:var(--s-base3)}
+.badge.disconnected{background:var(--s-red);color:var(--s-base3)}
+.badge.connecting{background:var(--s-yellow);color:var(--s-base03)}
+.badge.unknown{background:var(--subtle);color:var(--s-base3)}
+/* Toggle button — 44 px minimum for touch targets */
+.toggle{width:100%;min-height:44px;border:none;border-radius:6px;font-size:1rem;font-weight:600;cursor:pointer;transition:opacity .15s}
+.toggle.on{background:var(--s-green);color:var(--s-base3)}
+.toggle.off{background:var(--subtle);color:var(--s-base3)}
+.toggle:hover{opacity:.85}
+.toggle:disabled{opacity:.4;cursor:not-allowed}
+/* Slider controls */
+.ctrl{display:flex;flex-direction:column;gap:4px}
+.ctrl label{font-size:.82rem;color:var(--subtle)}
+input[type=range]{width:100%;height:28px;cursor:pointer;accent-color:var(--s-blue)}
+input[type=range]:disabled{opacity:.4;cursor:not-allowed}
+/* Colour picker */
+input[type=color]{width:44px;height:44px;border:none;background:none;cursor:pointer;padding:0;border-radius:4px}
+input[type=color]:disabled{opacity:.4;cursor:not-allowed}
+/* Reconnect button */
+.reconnect{min-height:40px;width:100%;background:transparent;border:1px solid var(--s-blue);color:var(--s-blue);border-radius:6px;font-size:.85rem;cursor:pointer;transition:background .15s,color .15s}
+.reconnect:hover{background:var(--s-blue);color:var(--s-base3)}
+/* Footer */
+footer{text-align:center;padding:10px;font-size:.8rem;color:var(--subtle)}
+</style>
+</head>
+<body>
+<header>
+  <h1>&#9889; ESPHome Lights</h1>
+  <span id="sseStatus" class="err">Connecting&#8230;</span>
+</header>
+<main id="grid">
+  <p style="grid-column:1/-1;text-align:center;padding:2rem;color:var(--subtle)">Loading&#8230;</p>
+</main>
+<footer id="footer">ESPHome Lights v__VERSION__</footer>
+<script>
+"use strict";
+const grid=document.getElementById("grid");
+const sseStatus=document.getElementById("sseStatus");
+const footer=document.getElementById("footer");
+let devList={},devStatus={},debounceTimers={};
+
+function db(key,fn,ms){
+  clearTimeout(debounceTimers[key]);
+  debounceTimers[key]=setTimeout(fn,ms||120);
+}
+
+async function req(method,path,body){
+  const o={method,headers:{}};
+  if(body){o.headers["Content-Type"]="application/json";o.body=JSON.stringify(body);}
+  try{const r=await fetch(path,o);return r.json();}
+  catch(e){return{ok:false,error:String(e)};}
+}
+
+function el(tag,cls,txt){
+  const e=document.createElement(tag);
+  if(cls)e.className=cls;
+  if(txt!=null)e.textContent=txt;
+  return e;
+}
+
+async function sendAction(dev,action,value){
+  const b={device:dev,action:action};
+  if(value!=null)b.value=String(value);
+  await req("POST","/api/set",b);
+}
+
+function buildCard(name,st,info){
+  const state=st.state||"unknown";
+  const conn=st.connection||(info&&info.connection)||"unknown";
+  const entityType=st.entity_type||(info&&info.entity_type);
+  const isOn=state==="ON";
+  const isLight=entityType==="light";
+  const disabled=conn!=="connected";
+
+  const card=el("div","card state-"+state.toLowerCase());
+  card.id="card-"+name;
+
+  /* Header row */
+  const hdr=el("div","card-hdr");
+  hdr.appendChild(el("span","card-name",name.replace(/_/g," ")));
+  hdr.appendChild(el("span","badge "+conn,conn));
+  card.appendChild(hdr);
+
+  /* Toggle button */
+  const tog=el("button","toggle "+(isOn?"on":"off"),isOn?"Turn Off":"Turn On");
+  tog.disabled=disabled;
+  tog.onclick=function(){sendAction(name,isOn?"off":"on");};
+  card.appendChild(tog);
+
+  if(isLight){
+    /* Brightness slider */
+    if(st.brightness!=null){
+      const c=el("div","ctrl");
+      const lbl=el("label","","Brightness: "+st.brightness);
+      const s=document.createElement("input");
+      s.type="range";s.min=0;s.max=255;s.value=st.brightness;s.disabled=disabled;
+      s.oninput=function(){
+        lbl.textContent="Brightness: "+s.value;
+        db(name+"-br",function(){sendAction(name,"brightness",s.value);});
+      };
+      c.appendChild(lbl);c.appendChild(s);card.appendChild(c);
+    }
+
+    /* RGB colour picker */
+    if(st.rgb!=null){
+      var parts=st.rgb.split(",").map(Number);
+      var hex="#"+parts.map(function(v){return v.toString(16).padStart(2,"0");}).join("");
+      const c=el("div","ctrl");
+      c.appendChild(el("label","","Colour"));
+      const p=document.createElement("input");
+      p.type="color";p.value=hex;p.disabled=disabled;
+      p.oninput=function(){
+        db(name+"-rgb",function(){
+          var h=p.value;
+          sendAction(name,"rgb",
+            parseInt(h.slice(1,3),16)+","+parseInt(h.slice(3,5),16)+","+parseInt(h.slice(5,7),16));
+        });
+      };
+      c.appendChild(p);card.appendChild(c);
+    }
+
+    /* Colour temperature slider */
+    if(st.color_temp!=null){
+      const c=el("div","ctrl");
+      const lbl=el("label","","Colour Temp: "+st.color_temp+"K");
+      const s=document.createElement("input");
+      s.type="range";s.min=2700;s.max=6500;s.value=st.color_temp;s.disabled=disabled;
+      s.oninput=function(){
+        lbl.textContent="Colour Temp: "+s.value+"K";
+        db(name+"-ct",function(){sendAction(name,"color_temp",s.value);});
+      };
+      c.appendChild(lbl);c.appendChild(s);card.appendChild(c);
+    }
+
+    /* Cold/warm white sliders */
+    if(st.cold_white!=null||st.warm_white!=null){
+      var cw=st.cold_white!=null?st.cold_white:0;
+      var ww=st.warm_white!=null?st.warm_white:0;
+      const cc=el("div","ctrl"),wc=el("div","ctrl");
+      const cwL=el("label","","Cold White: "+cw);
+      const wwL=el("label","","Warm White: "+ww);
+      const cwS=document.createElement("input");
+      const wwS=document.createElement("input");
+      [cwS,wwS].forEach(function(s){s.type="range";s.min=0;s.max=255;s.disabled=disabled;});
+      cwS.value=cw;wwS.value=ww;
+      function sendCWWW(){sendAction(name,"cwww",cwS.value+","+wwS.value);}
+      cwS.oninput=function(){cwL.textContent="Cold White: "+cwS.value;db(name+"-cwww",sendCWWW);};
+      wwS.oninput=function(){wwL.textContent="Warm White: "+wwS.value;db(name+"-cwww",sendCWWW);};
+      cc.appendChild(cwL);cc.appendChild(cwS);
+      wc.appendChild(wwL);wc.appendChild(wwS);
+      card.appendChild(cc);card.appendChild(wc);
+    }
+  }
+
+  /* Reconnect button */
+  const rb=el("button","reconnect","Reconnect");
+  rb.onclick=function(){req("POST","/api/reconnect",{device:name});};
+  card.appendChild(rb);
+
+  return card;
+}
+
+function render(){
+  grid.innerHTML="";
+  const names=Object.keys(devStatus).sort();
+  if(!names.length){
+    grid.innerHTML="<p style=\\"grid-column:1/-1;text-align:center;padding:2rem;color:var(--subtle)\\">No devices found.</p>";
+    return;
+  }
+  names.forEach(function(n){grid.appendChild(buildCard(n,devStatus[n],devList[n]));});
+}
+
+function connectSSE(){
+  var es=new EventSource("/api/events");
+  es.onopen=function(){sseStatus.className="ok";sseStatus.textContent="Live";};
+  es.onmessage=function(e){
+    try{
+      var d=JSON.parse(e.data);
+      if(d.ok&&d.result){devStatus=d.result;render();}
+    }catch(err){}
+  };
+  es.onerror=function(){sseStatus.className="err";sseStatus.textContent="Reconnecting\u2026";};
+}
+
+async function init(){
+  var results=await Promise.all([req("GET","/api/list"),req("GET","/api/status")]);
+  if(results[0].ok)devList=results[0].result;
+  if(results[1].ok){devStatus=results[1].result;render();}
+  connectSSE();
+}
+
+init();
+</script>
+</body>
+</html>
+"""
+
+# Pre-encode to bytes with version substituted — done once at import time.
+_WEB_UI_BYTES: bytes = _WEB_UI_HTML_RAW.replace(
+    "__VERSION__", _DAEMON_VERSION
+).encode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Web server — embedded HTTP server for browser-based device control
+# ---------------------------------------------------------------------------
+
+
+class WebServer:
+    """Embedded async HTTP server providing a browser UI and REST API.
+
+    Disabled by default.  Enable by setting ESPHOME_LIGHTS_WEB_PORT to a
+    non-zero integer (suggested: 7890).  Binds to 127.0.0.1 by default;
+    set ESPHOME_LIGHTS_WEB_BIND=0.0.0.0 to expose on the LAN.
+
+    REST endpoints:
+      GET  /              — Single-page web UI (HTML)
+      GET  /api/list      — Configured devices and connection state (JSON)
+      GET  /api/status    — Cached device state (JSON)
+      GET  /api/ping      — Health check (JSON)
+      GET  /api/events    — Server-Sent Events stream for real-time updates
+      POST /api/set       — Control a device {device, action, value?}
+      POST /api/reload    — Reload configuration without restarting
+      POST /api/reconnect — Force immediate reconnect {device?}
+    """
+
+    # Hard cap on request body size — protects against oversized POST bodies.
+    _MAX_BODY = 65_536  # 64 KB
+
+    _STATUS_PHRASES: dict[int, str] = {
+        200: "OK",
+        204: "No Content",
+        400: "Bad Request",
+        404: "Not Found",
+        405: "Method Not Allowed",
+        413: "Payload Too Large",
+    }
+
+    def __init__(self, manager: "DeviceManager", host: str, port: int):
+        self._manager = manager
+        self._host = host
+        self._port = port
+        self._server: asyncio.AbstractServer | None = None
+
+    async def start(self):
+        """Bind and start listening on the configured TCP port."""
+        self._server = await asyncio.start_server(
+            self._handle_client, self._host, self._port
+        )
+        log.info(
+            "Web interface listening on http://%s:%d/", self._host, self._port
+        )
+
+    async def stop(self):
+        """Stop the HTTP server."""
+        if self._server is not None:
+            self._server.close()
+            await self._server.wait_closed()
+            log.info("Web interface stopped")
+
+    async def _handle_client(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ):
+        """Handle a single HTTP request/response cycle."""
+        try:
+            # Parse the request line: METHOD PATH HTTP/x.x
+            request_line = await asyncio.wait_for(reader.readline(), timeout=10)
+            if not request_line:
+                return
+            parts = request_line.decode("utf-8", errors="replace").strip().split()
+            if len(parts) < 2:
+                return
+            method, path = parts[0].upper(), parts[1]
+
+            # Read headers until the blank separator line
+            headers: dict[str, str] = {}
+            while True:
+                line = await asyncio.wait_for(reader.readline(), timeout=10)
+                stripped = line.strip()
+                if not stripped:
+                    break
+                if b":" in stripped:
+                    k, _, v = stripped.decode("utf-8", errors="replace").partition(":")
+                    headers[k.lower().strip()] = v.strip()
+
+            # Read request body for POST requests
+            body = b""
+            if method == "POST":
+                content_length = int(headers.get("content-length", "0"))
+                if content_length > self._MAX_BODY:
+                    await self._write_response(
+                        writer, 413, "application/json",
+                        json.dumps({"ok": False, "error": "Request body too large"}),
+                    )
+                    return
+                if content_length > 0:
+                    body = await asyncio.wait_for(
+                        reader.read(content_length), timeout=10
+                    )
+
+            await self._route(writer, method, path, body)
+
+        except (ConnectionResetError, BrokenPipeError):
+            pass
+        except asyncio.TimeoutError:
+            pass
+        except UnicodeDecodeError:
+            pass
+        except Exception as exc:
+            log.debug("Web client error: %s", exc)
+        finally:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    async def _write_response(
+        self,
+        writer: asyncio.StreamWriter,
+        status: int,
+        content_type: str,
+        body: str | bytes,
+    ):
+        """Write a complete HTTP/1.1 response."""
+        if isinstance(body, str):
+            body = body.encode("utf-8")
+        phrase = self._STATUS_PHRASES.get(status, "OK")
+        header_block = (
+            f"HTTP/1.1 {status} {phrase}\r\n"
+            f"Content-Type: {content_type}\r\n"
+            f"Content-Length: {len(body)}\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+        )
+        writer.write(header_block.encode("utf-8") + body)
+        await writer.drain()
+
+    async def _route(
+        self,
+        writer: asyncio.StreamWriter,
+        method: str,
+        path: str,
+        body: bytes,
+    ):
+        """Dispatch the request to the appropriate handler."""
+        # Ignore query strings
+        path = path.split("?")[0]
+
+        if path == "/" and method == "GET":
+            # Serve the single-page web UI
+            header_block = (
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: text/html; charset=utf-8\r\n"
+                f"Content-Length: {len(_WEB_UI_BYTES)}\r\n"
+                "Connection: close\r\n"
+                "\r\n"
+            )
+            writer.write(header_block.encode("utf-8") + _WEB_UI_BYTES)
+            await writer.drain()
+
+        elif path == "/favicon.ico":
+            await self._write_response(writer, 204, "text/plain", "")
+
+        elif path == "/api/list" and method == "GET":
+            result = self._manager.handle_list()
+            await self._write_response(writer, 200, "application/json", json.dumps(result))
+
+        elif path == "/api/status" and method == "GET":
+            result = self._manager.handle_status()
+            await self._write_response(writer, 200, "application/json", json.dumps(result))
+
+        elif path == "/api/ping" and method == "GET":
+            result = self._manager.handle_ping()
+            await self._write_response(writer, 200, "application/json", json.dumps(result))
+
+        elif path == "/api/events" and method == "GET":
+            await self._handle_sse(writer)
+
+        elif path == "/api/set" and method == "POST":
+            try:
+                data = json.loads(body.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                await self._write_response(
+                    writer, 400, "application/json",
+                    json.dumps({"ok": False, "error": f"Invalid JSON: {exc}"}),
+                )
+                return
+            device = data.get("device")
+            action = data.get("action")
+            value = data.get("value")
+            if not device:
+                await self._write_response(
+                    writer, 400, "application/json",
+                    json.dumps({"ok": False, "error": "Missing 'device' field"}),
+                )
+                return
+            if not action:
+                await self._write_response(
+                    writer, 400, "application/json",
+                    json.dumps({"ok": False, "error": "Missing 'action' field"}),
+                )
+                return
+            result = self._manager.handle_set(device, action, value)
+            http_status = 200 if result.get("ok") else 400
+            await self._write_response(writer, http_status, "application/json", json.dumps(result))
+
+        elif path == "/api/reload" and method == "POST":
+            load_env()
+            new_devices = load_devices()
+            if not new_devices:
+                result = {"ok": False, "error": "No devices found in config after reload"}
+            else:
+                result = await self._manager.handle_reload(new_devices)
+            await self._write_response(writer, 200, "application/json", json.dumps(result))
+
+        elif path == "/api/reconnect" and method == "POST":
+            try:
+                data = json.loads(body.decode("utf-8")) if body.strip() else {}
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                data = {}
+            device = data.get("device", "all")
+            result = await self._manager.handle_reconnect(device)
+            await self._write_response(writer, 200, "application/json", json.dumps(result))
+
+        elif method not in ("GET", "POST", "HEAD"):
+            await self._write_response(
+                writer, 405, "application/json",
+                json.dumps({"ok": False, "error": f"Method not allowed: {method}"}),
+            )
+
+        else:
+            await self._write_response(
+                writer, 404, "application/json",
+                json.dumps({"ok": False, "error": f"Not found: {path}"}),
+            )
+
+    async def _handle_sse(self, writer: asyncio.StreamWriter):
+        """Stream Server-Sent Events to a connected browser client.
+
+        Sends an initial full status snapshot immediately, then pushes
+        incremental updates whenever any device state changes.  A keepalive
+        comment is emitted every 20 s to prevent proxy/browser timeouts.
+        """
+        sse_headers = (
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/event-stream\r\n"
+            "Cache-Control: no-cache\r\n"
+            "Connection: keep-alive\r\n"
+            "\r\n"
+        )
+        writer.write(sse_headers.encode("utf-8"))
+        await writer.drain()
+
+        # Send initial full state so the browser has data immediately
+        initial = self._manager.handle_status()
+        writer.write(f"data: {json.dumps(initial)}\n\n".encode("utf-8"))
+        await writer.drain()
+
+        # Register as a subscriber and stream updates until disconnect
+        queue: asyncio.Queue = asyncio.Queue()
+        self._manager._sse_subscribers.append(queue)
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=20.0)
+                    writer.write(f"data: {json.dumps(event)}\n\n".encode("utf-8"))
+                except asyncio.TimeoutError:
+                    # Keepalive comment — prevents proxies and browsers timing out
+                    writer.write(b": keepalive\n\n")
+                await writer.drain()
+        finally:
+            # Clean up subscription whether we exit cleanly or via disconnect
+            try:
+                self._manager._sse_subscribers.remove(queue)
+            except ValueError:
+                pass
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -800,7 +1350,15 @@ async def main():
     manager = DeviceManager(devices)
     server = SocketServer(manager)
 
-    # Set up graceful shutdown and config-reload events
+    # Optional web interface (disabled when ESPHOME_LIGHTS_WEB_PORT is 0 or unset)
+    _web_port_str = os.environ.get("ESPHOME_LIGHTS_WEB_PORT", "0")
+    try:
+        _web_port = int(_web_port_str)
+    except ValueError:
+        log.warning("Invalid ESPHOME_LIGHTS_WEB_PORT=%r — disabling web interface", _web_port_str)
+        _web_port = 0
+    _web_bind = os.environ.get("ESPHOME_LIGHTS_WEB_BIND", "127.0.0.1")
+    web_server: WebServer | None = WebServer(manager, _web_bind, _web_port) if _web_port > 0 else None
     shutdown_event = asyncio.Event()
     reload_event = asyncio.Event()
 
@@ -820,6 +1378,8 @@ async def main():
     # Start the socket server first so the CLI can connect and poll status
     # while device connections are still in progress.
     await server.start()
+    if web_server:
+        await web_server.start()
     log.info("Daemon ready")
     await manager.connect_all()
 
@@ -849,6 +1409,8 @@ async def main():
 
     # Graceful shutdown
     log.info("Shutting down...")
+    if web_server:
+        await web_server.stop()
     await server.stop()
     await manager.disconnect_all()
     log.info("Shutdown complete")

@@ -7,7 +7,7 @@ native ESPHome API, designed as an
 [OpenClaw](https://github.com/openclaw/openclaw) skill for
 voice/chat-driven home automation.
 
-**Version:** 0.4.0
+**Version:** 0.5.0
 
 ## Overview
 
@@ -32,7 +32,7 @@ CLI (shell)  —(Unix socket)—>  Daemon  —(persistent ESPHome API connection
 | Python CLI             | `esphome-lights.py`       | Formatting fallback (list/status)    |
 | Daemon                 | `esphome-lightsd.py`      | Persistent connections, state cache  |
 | systemd unit           | `esphome-lightsd.service` | Auto-start on boot                   |
-| Tests                  | `tests/`                  | Unit tests (63 tests)                |
+| Tests                  | `tests/`                  | Unit tests (117 tests)               |
 | OpenClaw skill         | `SKILL.md`                | Chat-driven control via OpenClaw     |
 
 ## Requirements
@@ -312,6 +312,53 @@ Logs rotate automatically at 1 MB with 3 backups kept (~4 MB total).
 | `ESPHOME_LIGHTS_LOG_FILE` | `~/.local/share/esphome-lights/esphome-lightsd.log` | Override path, or set to `none`/`off`/`false`/`0` to disable |
 | `ESPHOME_LIGHTS_LOG_LEVEL` | `INFO` | Applies to both console and file output |
 
+## Web Interface
+
+The daemon includes an optional browser-based control UI, disabled by default.
+
+| Env Var | Default | Effect |
+|---|---|---|
+| `ESPHOME_LIGHTS_WEB_PORT` | `0` (disabled) | Set to a non-zero port to enable (e.g. `7890`) |
+| `ESPHOME_LIGHTS_WEB_BIND` | `127.0.0.1` | Bind address; use `0.0.0.0` to expose on the LAN |
+
+```bash
+# Enable the web interface on port 7890 (localhost only)
+export ESPHOME_LIGHTS_WEB_PORT=7890
+
+# Or expose on the LAN
+export ESPHOME_LIGHTS_WEB_PORT=7890
+export ESPHOME_LIGHTS_WEB_BIND=0.0.0.0
+```
+
+Once enabled, open `http://127.0.0.1:7890/` in a browser.
+
+### Web UI features
+
+- **Solarized colour scheme** — auto light/dark mode via `prefers-color-scheme`
+- **Responsive layout** — CSS Grid with 300 px minimum card width; mobile-friendly with 44 px+ tap targets
+- **Device cards** — toggle, brightness slider, RGB colour picker, colour-temp slider, cold/warm white sliders (controls shown only when the entity supports them)
+- **Real-time updates** — Server-Sent Events (SSE) push state to all open browser tabs instantly whenever any source changes a device (CLI, another browser tab, etc.)
+- **Reconnect button** per device
+- **No external dependencies** — the entire UI is served inline from the daemon; no CDN, no JavaScript frameworks
+
+### REST API
+
+All endpoints return JSON. Useful for scripting or custom integrations.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/list` | Configured devices and connection state |
+| `GET` | `/api/status` | Cached device state |
+| `GET` | `/api/ping` | Health check |
+| `GET` | `/api/events` | SSE stream (real-time updates) |
+| `POST` | `/api/set` | Control a device: `{"device": "living_room", "action": "on"}` |
+| `POST` | `/api/reload` | Reload config without restarting |
+| `POST` | `/api/reconnect` | Force reconnect: `{"device": "living_room"}` |
+
+**Security note:** No authentication is provided. The default `127.0.0.1`
+binding restricts access to localhost. Setting `WEB_BIND=0.0.0.0` exposes
+the UI on the LAN — use network-level access controls if you do this.
+
 To disable file logging:
 
 ```bash
@@ -412,11 +459,12 @@ python3 -m unittest discover -s tests -v
 
 85 tests covering daemon command handlers, socket protocol, entity resolution,
 state caching, client-daemon integration, all-device wildcard broadcast, file
-logging configuration, and command audit logging.
+logging configuration, command audit logging, reconnect handling, web server
+route dispatch, and SSE subscriber notification.
 
-> **Platform note:** Tests are developed and CI'd on Linux. 8 tests that
+> **Platform note:** Tests are developed and CI'd on Linux. Tests that
 > exercise Unix domain socket I/O show as ERRORs on Windows/macOS (Unix
-> sockets are not available). All 85 tests pass on Linux.
+> sockets are not available). All tests pass on Linux.
 
 ## File Structure
 

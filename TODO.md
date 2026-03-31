@@ -16,6 +16,35 @@ next session picks up from here.
 
 ## Completed
 
+### v0.5.0 — Built-in web interface
+
+- [x] Add `WebServer` class to `esphome-lightsd.py` — embedded async HTTP
+      server using stdlib `asyncio.start_server`; no new dependencies.
+- [x] Add REST API endpoints: `GET /api/list`, `/api/status`, `/api/ping`,
+      `POST /api/set`, `/api/reload`, `/api/reconnect`.
+- [x] Add SSE endpoint `GET /api/events` — streams real-time state updates to
+      all connected browser clients whenever any device state changes.
+- [x] Add `_sse_subscribers` queue list to `DeviceManager`; `_handle_state()`
+      pushes a full status snapshot to all queues on every state change.
+- [x] Add `_WEB_UI_HTML_RAW` / `_WEB_UI_BYTES` — complete inline
+      single-page HTML/CSS/JS app; Solarized colours, auto light/dark via
+      `prefers-color-scheme`, CSS Grid responsive layout, 44 px+ tap targets.
+- [x] Device cards: toggle, brightness slider, RGB colour picker,
+      colour-temp slider, CW/WW sliders, reconnect button — controls only
+      shown for entity types that support them.
+- [x] Disabled by default (`ESPHOME_LIGHTS_WEB_PORT=0`); enable with a
+      non-zero port (suggested: 7890). Bind to `127.0.0.1` by default;
+      `ESPHOME_LIGHTS_WEB_BIND=0.0.0.0` for LAN access.
+- [x] Add `ESPHOME_LIGHTS_WEB_PORT` and `ESPHOME_LIGHTS_WEB_BIND` to
+      `load_devices()` exclusion list so they aren't parsed as devices.
+- [x] Wire `WebServer` into `main()` — starts after socket server, stops
+      before socket server during graceful shutdown.
+- [x] Add 24 new unit tests: `TestWebServerRoutes` (18 tests covering all
+      REST routes, 404/405, body-size constant, version embed, env var
+      exclusion) and `TestSSESubscribers` (5 tests for subscriber
+      registration, multi-subscriber, full snapshot format, switch state).
+- [x] Update README.md, CLAUDE.md, TODO.md, VERSION (0.5.0).
+
 ### v0.4.1 — On-demand reconnect
 
 - [x] Add `handle_reconnect` / `_reconnect_device` to `DeviceManager` — cancels

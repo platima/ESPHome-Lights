@@ -94,6 +94,8 @@ so that SIGHUP-triggered reloads pick up changes immediately.
   ```
   ESPHOME_LIGHTS_LIVING_ROOM="192.168.1.101:6053|A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3x4Y5z6A7b8C9d0="
   ESPHOME_LIGHTS_LOG_FILE="none"   # set to none/off/false/0 to disable file logging
+  ESPHOME_LIGHTS_WEB_PORT=7890     # enable web UI (disabled when 0 or unset)
+  ESPHOME_LIGHTS_WEB_BIND=0.0.0.0  # optional: expose on LAN (default: 127.0.0.1)
   ```
 
 ## CLI Interface
@@ -301,18 +303,46 @@ chmod +x ~/.openclaw/workspace-layla/skills/esphome-lights/esphome-lights{,.py} 
 
 Ensure `ESPHOME_LIGHTS_*` env vars are available to the agent.
 
+## Web Interface
+
+The daemon exposes an optional built-in HTTP server disabled by default.
+
+| Env Var | Default | Effect |
+|---|---|---|
+| `ESPHOME_LIGHTS_WEB_PORT` | `0` (disabled) | Set to a non-zero port to enable (e.g. `7890`) |
+| `ESPHOME_LIGHTS_WEB_BIND` | `127.0.0.1` | Bind address; use `0.0.0.0` to expose on the LAN |
+
+**REST endpoints** (all return JSON):
+- `GET /api/list` — configured devices and connection state
+- `GET /api/status` — cached device state
+- `GET /api/ping` — health check
+- `GET /api/events` — Server-Sent Events stream for real-time updates
+- `POST /api/set` — control a device `{device, action, value?}`
+- `POST /api/reload` — reload configuration
+- `POST /api/reconnect` — force immediate reconnect `{device?}`
+
+**Web UI** is served from `GET /` — a single-page app with:
+- Solarized colour scheme, auto light/dark via `prefers-color-scheme`
+- Responsive CSS Grid layout, 300 px minimum card width, 44 px+ tap targets
+- Device cards with toggle, brightness slider, RGB picker, colour-temp slider, CW/WW sliders (controls shown only when applicable)
+- Real-time updates via SSE — state pushed to all open browser tabs immediately when changed by any source (CLI, another browser tab, etc.)
+- Reconnect button per device
+
+No authentication — localhost binding is the security boundary by default.
+
 ## Current State
 
-- **Version:** 0.4.0
+- **Version:** 0.5.0
 - **Status:** Shell CLI wrapper + daemon architecture. Control commands (on/off/brightness/rgb/color-temp/cwww/ping/reload) achieve sub-10ms response times via socat/nc on ARM.
+- **Web interface** added: optional built-in HTTP server with a Solarized browser UI and Server-Sent Events for real-time device state. Disabled by default; enable via `ESPHOME_LIGHTS_WEB_PORT`. No new dependencies.
 - `install.sh` supports `--upgrade` (git pull + update scripts/packages + restart), `--repair` (full reinstall without git pull), and `--uninstall`. Detecting an existing install runs health checks (venv, service file, symlinks, aioesphomeapi import) and defaults to Repair if issues are found.
 - OpenClaw skill installer copies skill files into a real directory (not a symlink) to comply with OpenClaw 2026.3.13+ security policy. Upgrade/repair automatically migrate legacy symlinks to real directories.
 - The shell wrapper (`esphome-lights`) handles all control commands natively; delegates `--list`/`--status`/`--json`/`--debug` to `esphome-lights.py`.
 - The Python CLI (`esphome-lights.py`) is retained for complex output formatting and as a universal fallback.
-- The daemon (`esphome-lightsd.py`) maintains persistent connections and serves commands via a Unix domain socket.
+- The daemon (`esphome-lightsd.py`) maintains persistent connections, serves commands via a Unix domain socket, and optionally serves a web UI on a TCP port.
 - `install.sh` installs as a systemd user service (no sudo required), checks for config, and offers OpenClaw skill registration. Supports `--install`, `--fast` (non-interactive), `--verbose`, and `--uninstall` flags.
 - `--device all` broadcasts commands to every device at once.
-- 93 unit tests covering daemon handlers, socket protocol, entity resolution, state caching, client-daemon integration, all-device wildcard broadcast, file logging config, command audit logging, and reconnect handling.
+- 117 unit tests covering daemon handlers, socket protocol, entity resolution, state caching, client-daemon integration, all-device wildcard broadcast, file logging config, command audit logging, reconnect handling, web server route dispatch, and SSE subscriber notification.
 
 ## Known Limitations
 
