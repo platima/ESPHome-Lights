@@ -30,10 +30,10 @@ CLI client  —(Unix socket)—>  Daemon  —(persistent ESPHome API connections
 - **WSL2:** Debian instance available for Linux-native tooling
 - **Terminals:** PowerShell in VS Code; Debian WSL2 accessible if needed
 - **Deployment target:** Luckfox Pico (ARM Linux SBC), resource-constrained
-- **Python interpreter:** Daemon requires **Python 3.11** in a dedicated venv
-  (`~/.local/lib/esphome-lights/venv`). Python 3.12/3.13 has Noise encryption
-  compatibility issues on ARM (compiled `noise` C extension behaves differently).
-  The CLI client is stdlib-only and uses system `python3`.
+- **Python interpreter:** Daemon requires **Python 3.11+** in a dedicated venv
+  (`~/.local/lib/esphome-lights/venv`). Python 3.13 is confirmed working on the
+  Luckfox Pico with `aioesphomeapi` 44.0.0. The CLI client is stdlib-only and
+  uses system `python3`.
   - **`noiseprotocol` vs `noise` conflict** — both install into the same `noise/`
     directory. The installer force-reinstalls `noiseprotocol` after `aioesphomeapi`
     to avoid silent breakage. Fix manually: `venv/bin/pip install --force-reinstall noiseprotocol`.
@@ -119,6 +119,10 @@ Flags:
   --debug              Wait for completion and show detailed results (delegates to Python)
 ```
 
+Control commands run natively in the shell wrapper (~10 ms via socat on ARM).
+`--list` and `--status` delegate to `esphome-lights.py` for output formatting
+(~150 ms on ARM); latency is not critical for informational commands.
+
 ## Entity Handling
 
 - Prefer `LightInfo` entities for brightness/RGB/colour-temperature/CW-WW control.
@@ -148,13 +152,13 @@ Semantic Versioning tracked in the `VERSION` file at the repo root.
 
 ### Git Workflow
 
-1. Create a **feature or fix branch** off `master` (`feature/<name>`, `fix/<name>`).
+1. Create a **feature or fix branch** off `main` (`feature/<name>`, `fix/<name>`).
 2. Make changes, commit with a **Conventional Commits** message
    (`feat:`, `fix:`, `chore:`, `docs:`).
 3. **Bump the PATCH** version in `VERSION` with each commit.
 4. When the phase/milestone is complete: bump **MINOR**, update `README.md`,
    commit, and push.
-5. Merge back to `master`.
+5. Merge back to `main`.
 
 ### Documentation & Testing
 
@@ -199,8 +203,6 @@ them silently — each must be visible in the plan.
   ```bash
   python3 -m unittest discover -s tests -v
   ```
-- **Profiling:** The old `cpython.txt` cProfile output has been removed from
-  the repo (still in git history for reference).
 
 ## Daemon Protocol
 
@@ -329,28 +331,3 @@ The daemon exposes an optional built-in HTTP server disabled by default.
 - Reconnect button per device
 
 No authentication — localhost binding is the security boundary by default.
-
-## Current State
-
-- **Version:** 0.5.0
-- **Status:** Shell CLI wrapper + daemon architecture. Control commands (on/off/brightness/rgb/color-temp/cwww/ping/reload) achieve sub-10ms response times via socat/nc on ARM.
-- **Web interface** added: optional built-in HTTP server with a Solarized browser UI and Server-Sent Events for real-time device state. Disabled by default; enable via `ESPHOME_LIGHTS_WEB_PORT`. No new dependencies.
-- `install.sh` supports `--upgrade` (git pull + update scripts/packages + restart), `--repair` (full reinstall without git pull), and `--uninstall`. Detecting an existing install runs health checks (venv, service file, symlinks, aioesphomeapi import) and defaults to Repair if issues are found.
-- OpenClaw skill installer copies skill files into a real directory (not a symlink) to comply with OpenClaw 2026.3.13+ security policy. Upgrade/repair automatically migrate legacy symlinks to real directories.
-- The shell wrapper (`esphome-lights`) handles all control commands natively; delegates `--list`/`--status`/`--json`/`--debug` to `esphome-lights.py`.
-- The Python CLI (`esphome-lights.py`) is retained for complex output formatting and as a universal fallback.
-- The daemon (`esphome-lightsd.py`) maintains persistent connections, serves commands via a Unix domain socket, and optionally serves a web UI on a TCP port.
-- `install.sh` installs as a systemd user service (no sudo required), checks for config, and offers OpenClaw skill registration. Supports `--install`, `--fast` (non-interactive), `--verbose`, and `--uninstall` flags.
-- `--device all` broadcasts commands to every device at once.
-- 117 unit tests covering daemon handlers, socket protocol, entity resolution, state caching, client-daemon integration, all-device wildcard broadcast, file logging config, command audit logging, reconnect handling, web server route dispatch, and SSE subscriber notification.
-
-## Known Limitations
-
-- **Performance not yet benchmarked** on the Luckfox Pico target hardware.
-  RK3576 measured ~10ms for control commands via socat; similar expected on
-  Luckfox Pico.
-- **`--list` and `--status` still use Python** for output formatting (~150ms
-  on ARM). These are informational commands so latency is less critical.
-- **Python 3.13 confirmed working** on the Luckfox Pico with
-  `aioesphomeapi` 44.0.0. See the Dev Environment section for the
-  `noiseprotocol` gotcha.
