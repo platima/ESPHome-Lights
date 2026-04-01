@@ -29,7 +29,7 @@ CLI client  —(Unix socket)—>  Daemon  —(persistent ESPHome API connections
 - **Dev machine:** Windows 11 with VS Code as the primary IDE
 - **WSL2:** Debian instance available for Linux-native tooling
 - **Terminals:** PowerShell in VS Code; Debian WSL2 accessible if needed
-- **Deployment target:** ARM Linux SBC, resource-constrained
+- **Deployment target:** Any Linux system with Python 3.11+ (tested on ARM SBCs; no architecture-specific dependencies)
 - **Python interpreter:** Daemon requires **Python 3.11+** in a dedicated venv
   (`~/.local/lib/esphome-lights/venv`). Python 3.13 is confirmed working on the
   an ARM Linux SBC with `aioesphomeapi` 44.0.0. The CLI client is stdlib-only and
@@ -119,9 +119,9 @@ Flags:
   --debug              Wait for completion and show detailed results (delegates to Python)
 ```
 
-Control commands run natively in the shell wrapper (~10 ms via socat on ARM).
+Control commands run natively in the shell wrapper (~10 ms via socat).
 `--list` and `--status` delegate to `esphome-lights.py` for output formatting
-(~150 ms on ARM); latency is not critical for informational commands.
+(~150 ms); latency is not critical for informational commands.
 
 ## Entity Handling
 
