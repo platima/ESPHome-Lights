@@ -29,10 +29,10 @@ CLI client  —(Unix socket)—>  Daemon  —(persistent ESPHome API connections
 - **Dev machine:** Windows 11 with VS Code as the primary IDE
 - **WSL2:** Debian instance available for Linux-native tooling
 - **Terminals:** PowerShell in VS Code; Debian WSL2 accessible if needed
-- **Deployment target:** Luckfox Pico (ARM Linux SBC), resource-constrained
+- **Deployment target:** ARM Linux SBC, resource-constrained
 - **Python interpreter:** Daemon requires **Python 3.11+** in a dedicated venv
   (`~/.local/lib/esphome-lights/venv`). Python 3.13 is confirmed working on the
-  Luckfox Pico with `aioesphomeapi` 44.0.0. The CLI client is stdlib-only and
+  an ARM Linux SBC with `aioesphomeapi` 44.0.0. The CLI client is stdlib-only and
   uses system `python3`.
   - **`noiseprotocol` vs `noise` conflict** — both install into the same `noise/`
     directory. The installer force-reinstalls `noiseprotocol` after `aioesphomeapi`
@@ -47,7 +47,7 @@ CLI client  —(Unix socket)—>  Daemon  —(persistent ESPHome API connections
 | ESPHome comms        | `aioesphomeapi` (Noise protocol, protobuf)     |
 | IPC                  | Unix domain socket, newline-delimited JSON     |
 | CLI socket transport | `socat` (preferred) or `nc -U` (fallback)      |
-| Process management   | systemd (on the Luckfox deployment target)     |
+| Process management   | systemd (on the deployment target)             |
 | Config               | Environment variables + `.env` file            |
 
 ## Key Files
