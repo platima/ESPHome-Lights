@@ -83,9 +83,9 @@ ESPHOME_LIGHTS_<LOCATION>="<host>:<port>|<encryption_key>"
 The daemon loads env files in **priority order** (highest to lowest). Later
 files override earlier ones, so the highest-priority source wins:
 
-1. `~/.openclaw/workspace/.env` -- OpenClaw workspace (if present)
-2. `~/.config/esphome-lights/env` -- installer-managed config file
-3. `{script_dir}/../.env` -- legacy fallback for manual installs
+1. `~/.openclaw/workspace/.env` — OpenClaw workspace (if present)
+2. `~/.config/esphome-lights/env` — installer-managed config file
+3. `{script_dir}/../.env` — legacy fallback for manual installs
 
 The systemd unit no longer uses `EnvironmentFile=`; Python handles all loading
 so that SIGHUP-triggered reloads pick up changes immediately.
@@ -95,7 +95,7 @@ so that SIGHUP-triggered reloads pick up changes immediately.
   ESPHOME_LIGHTS_LIVING_ROOM="192.168.1.101:6053|A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3x4Y5z6A7b8C9d0="
   ESPHOME_LIGHTS_LOG_FILE="none"   # set to none/off/false/0 to disable file logging
   ESPHOME_LIGHTS_WEB_PORT=7890     # enable web UI (disabled when 0 or unset)
-  ESPHOME_LIGHTS_WEB_BIND=0.0.0.0  # optional: expose on LAN (default: 127.0.0.1)
+  ESPHOME_LIGHTS_WEB_BIND=localhost # localhost (default) or any/lan for LAN access
   ```
 
 ## CLI Interface
@@ -139,6 +139,11 @@ Control commands run natively in the shell wrapper (~10 ms via socat).
 Australian English in **all** comments, log messages, and documentation.
 Examples: initialise, behaviour, colour, licence, serialisation, organisation,
 optimise, minimise, recognise.
+
+Do **not** use `--` as an em-dash substitute in any user-visible output (log
+messages, installer output, CLI error messages). Use a semicolon, colon,
+period, or rephrasing instead. A proper em dash (—) is acceptable in
+documentation and comments but not in terminal output.
 
 ### Versioning (SemVer)
 
@@ -312,7 +317,7 @@ The daemon exposes an optional built-in HTTP server disabled by default.
 | Env Var | Default | Effect |
 |---|---|---|
 | `ESPHOME_LIGHTS_WEB_PORT` | `0` (disabled) | Set to a non-zero port to enable (e.g. `7890`) |
-| `ESPHOME_LIGHTS_WEB_BIND` | `127.0.0.1` | Bind address; use `0.0.0.0` to expose on the LAN |
+| `ESPHOME_LIGHTS_WEB_BIND` | `localhost` | `localhost`/`local`/`127.0.0.1` for local only; `any`/`all`/`lan`/`0.0.0.0` for LAN |
 
 **REST endpoints** (all return JSON):
 - `GET /api/list` — configured devices and connection state

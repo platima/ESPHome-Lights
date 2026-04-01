@@ -41,12 +41,13 @@ Web interface (disabled by default):
   Set ESPHOME_LIGHTS_WEB_PORT to a non-zero port to enable a browser-based
   control UI with real-time updates via Server-Sent Events.
 
-  ESPHOME_LIGHTS_WEB_PORT=7890        (optional; 0 = disabled, the default)
-  ESPHOME_LIGHTS_WEB_BIND="127.0.0.1" (optional; defaults to localhost only)
+  ESPHOME_LIGHTS_WEB_PORT=7890     (optional; 0 = disabled, the default)
+  ESPHOME_LIGHTS_WEB_BIND=localhost (optional; default: localhost — local access only)
 
+  WEB_BIND accepts: localhost/local/127.0.0.1 (local only) or any/all/lan/0.0.0.0
+  (LAN access).  No authentication is provided; rely on network-level access
+  controls when exposing on the LAN.
   Suggested port: 7890 (not used by WHMCS/Immich/Frigate/Home Assistant/ESPHome).
-  Set WEB_BIND=0.0.0.0 to expose the UI on the LAN.  No authentication is
-  provided; rely on network-level access controls for LAN exposure.
 """
 
 import asyncio
@@ -1341,7 +1342,7 @@ async def main():
         sys.exit(1)
 
     log.info(
-        "Daemon starting v%s -- %d device(s): %s",
+        "Daemon starting v%s, %d device(s): %s",
         _DAEMON_VERSION,
         len(devices),
         ", ".join(sorted(devices)),
@@ -1357,7 +1358,13 @@ async def main():
     except ValueError:
         log.warning("Invalid ESPHOME_LIGHTS_WEB_PORT=%r — disabling web interface", _web_port_str)
         _web_port = 0
-    _web_bind = os.environ.get("ESPHOME_LIGHTS_WEB_BIND", "127.0.0.1")
+    _web_bind_raw = os.environ.get("ESPHOME_LIGHTS_WEB_BIND", "localhost").strip().lower()
+    if _web_bind_raw in ("localhost", "local", "127.0.0.1"):
+        _web_bind = "127.0.0.1"
+    elif _web_bind_raw in ("any", "all", "lan", "0.0.0.0"):
+        _web_bind = "0.0.0.0"
+    else:
+        _web_bind = _web_bind_raw  # Treat as a literal IP address.
     web_server: WebServer | None = WebServer(manager, _web_bind, _web_port) if _web_port > 0 else None
     shutdown_event = asyncio.Event()
     reload_event = asyncio.Event()

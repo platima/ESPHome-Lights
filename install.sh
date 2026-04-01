@@ -109,6 +109,13 @@ _create_env_template() {
 #
 # ESPHOME_LIGHTS_LIVING_ROOM="192.168.1.101:6053|A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3x4Y5z6A7b8C9d0="
 # ESPHOME_LIGHTS_BEDROOM="192.168.1.102:6053|Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2H1g0F9e8D7c6B5a4Z3y2X1w0="
+
+# Optional: built-in web interface (disabled when port is 0 or unset)
+# ESPHOME_LIGHTS_WEB_PORT=7890
+# ESPHOME_LIGHTS_WEB_BIND=localhost   # localhost (default) or any/lan for LAN access
+
+# Optional: log file location (set to none/off/false/0 to disable file logging)
+# ESPHOME_LIGHTS_LOG_FILE=~/.local/share/esphome-lights/esphome-lightsd.log
 EOF
     ok "Template created at $ENV_FILE"
     warn "Edit $ENV_FILE to add your devices before starting the daemon."
@@ -199,7 +206,7 @@ do_uninstall() {
 
     ok "Uninstall complete."
     if [[ $KEEP_VENV -eq 1 && -d "$VENV_DIR" ]]; then
-        info "Venv retained at $VENV_DIR -- re-run the installer to restore everything."
+        info "Venv retained at $VENV_DIR. Re-run the installer to restore everything."
     fi
     echo
     exit 0
@@ -211,13 +218,31 @@ do_uninstall() {
 # Shared helpers (upgrade, repair, and the standard install path all use these)
 # ---------------------------------------------------------------------------
 
+# Display which config file(s) the daemon will load on next start.
+_show_config_info() {
+    local _env_file="$CONFIG_DIR/env"
+    local _oc_env="$HOME/.openclaw/workspace/.env"
+    local _found=0
+    if [[ -f "$_oc_env" ]]; then
+        ok "Config (highest priority): $_oc_env"
+        _found=1
+    fi
+    if [[ -f "$_env_file" ]]; then
+        ok "Config: $_env_file"
+        _found=1
+    fi
+    if [[ $_found -eq 0 ]]; then
+        warn "No config file found. Add devices to: $_env_file"
+    fi
+}
+
 # Stop the daemon service if it is currently active.
 _stop_service() {
     if systemctl --user is-active "$SERVICE_NAME" > /dev/null 2>&1; then
         info "Stopping $SERVICE_NAME ..."
         systemctl --user stop "$SERVICE_NAME" \
             && ok "Service stopped." \
-            || warn "Could not stop service -- proceeding anyway."
+            || warn "Could not stop service; proceeding anyway."
     fi
 }
 
@@ -248,9 +273,9 @@ _install_scripts() {
     local _f
     for _f in esphome-lights esphome-lights.py esphome-lightsd.py; do
         if [[ ! -f "$INSTALL_LIB/$_f" ]]; then
-            warn "$INSTALL_LIB/$_f is not a regular file -- installation may be broken."
+            warn "$INSTALL_LIB/$_f is not a regular file; installation may be broken."
         elif [[ ! -x "$INSTALL_LIB/$_f" ]]; then
-            warn "$INSTALL_LIB/$_f is not executable -- fixing permissions."
+            warn "$INSTALL_LIB/$_f is not executable; fixing permissions."
             chmod +x "$INSTALL_LIB/$_f"
         fi
     done
@@ -266,7 +291,7 @@ _install_scripts() {
 _upgrade_deps() {
     local _venv_py="$INSTALL_LIB/venv/bin/python"
     [[ -f "$_venv_py" ]] \
-        || die "venv not found at $INSTALL_LIB/venv -- use --repair to recreate it."
+        || die "venv not found at $INSTALL_LIB/venv. Use --repair to recreate it."
     info "Upgrading packages in venv ..."
     "$_venv_py" -m pip install --upgrade pip --quiet
     "$_venv_py" -m pip install --upgrade aioesphomeapi --quiet \
@@ -275,7 +300,7 @@ _upgrade_deps() {
     # directory and silently breaks Noise encryption if left in place.
     "$_venv_py" -m pip install --force-reinstall noiseprotocol --quiet \
         && ok "Packages upgraded." \
-        || warn "noiseprotocol reinstall failed -- encryption may not work."
+        || warn "noiseprotocol reinstall failed; encryption may not work."
 }
 
 # Write (or rewrite) the systemd service unit file and reload daemon config.
@@ -403,13 +428,13 @@ _install_openclaw_skill() {
     echo "  Where should the ESPHome Lights skill be installed?"
     echo "  (multiple choices allowed, e.g:  g   or   1 2   or   g 2)"
     echo
-    echo "  [g] Global -- ~/.openclaw/skills/  (available to all agents)  [default]"
+    echo "  [g] Global:  ~/.openclaw/skills/  (available to all agents)  [default]"
     local _i=1
     for _ws_d in ${_workspaces[@]+"${_workspaces[@]}"}; do
-        printf '  [%d] Agent  -- ~/%s/skills/\n' "$_i" "${_ws_d#$HOME/}"
+        printf '  [%d] Agent:  ~/%s/skills/\n' "$_i" "${_ws_d#$HOME/}"
         _i=$(( _i + 1 ))
     done
-    echo "  [o] Other  -- enter a custom path"
+    echo "  [o] Other:   enter a custom path"
     echo "  [n] Skip"
     echo
     local _oc_choices
@@ -446,14 +471,14 @@ _install_openclaw_skill() {
                     _copy_skill_files "$_custom_dir/$_skill_name"
                     ok "OpenClaw skill linked: ${_custom_dir/#$HOME/~}/$_skill_name"
                 else
-                    warn "No path entered -- skipped."
+                    warn "No path entered; skipped."
                 fi
                 ;;
             n|no|skip)
                 info "Skipped OpenClaw skill installation."
                 ;;
             *)
-                warn "Unrecognised choice '${_tok}' -- skipped."
+                warn "Unrecognised choice '${_tok}'; skipped."
                 ;;
         esac
     done
@@ -465,7 +490,7 @@ _install_openclaw_skill() {
 
 do_upgrade() {
     echo
-    info "ESPHome Lights -- upgrade"
+    info "ESPHome Lights: upgrade"
     echo
     [[ $EUID -ne 0 ]] || die "Do not run this installer as root or with sudo."
 
@@ -483,11 +508,11 @@ do_upgrade() {
         if [[ $VERBOSE -eq 1 ]]; then
             git -C "$SCRIPT_DIR" pull \
                 && ok "Repository updated." \
-                || warn "git pull failed -- upgrading from current working tree."
+                || warn "git pull failed; upgrading from current working tree."
         else
             git -C "$SCRIPT_DIR" pull --quiet \
                 && ok "Repository updated." \
-                || warn "git pull failed -- upgrading from current working tree."
+                || warn "git pull failed; upgrading from current working tree."
         fi
 
         # Re-exec with the updated install.sh so that any fixes to the
@@ -504,7 +529,7 @@ do_upgrade() {
             exec bash "$SCRIPT_DIR/install.sh" "${_reexec_args[@]}"
         fi
     else
-        warn "Source is not a git repository -- upgrading from current source files."
+        warn "Source is not a git repository; upgrading from current source files."
     fi
 
     NEW_VERSION="$(cat "$SOURCE_DIR/VERSION" 2>/dev/null || echo "unknown")"
@@ -516,8 +541,9 @@ do_upgrade() {
 
     _install_openclaw_skill
 
+    _show_config_info
     if [[ "$OLD_VERSION" == "$NEW_VERSION" ]]; then
-        ok "Upgrade complete (v$NEW_VERSION -- already up to date)."
+        ok "Upgrade complete (v$NEW_VERSION, already up to date)."
     else
         ok "Upgrade complete: v$OLD_VERSION -> v$NEW_VERSION"
     fi
@@ -531,7 +557,7 @@ do_upgrade() {
 
 do_repair() {
     echo
-    info "ESPHome Lights -- repair"
+    info "ESPHome Lights: repair"
     info "Reinstalling scripts, dependencies, and systemd service."
     echo
     [[ $EUID -ne 0 ]] || die "Do not run this installer as root or with sudo."
@@ -547,7 +573,7 @@ do_repair() {
     local _venv_dir="$INSTALL_LIB/venv"
     local _venv_py="$_venv_dir/bin/python"
     if [[ ! -d "$_venv_dir" ]]; then
-        info "venv not found -- creating Python 3.11 venv ..."
+        info "venv not found; creating Python 3.11 venv ..."
         if "$PYTHON311" -m venv --upgrade-deps "$_venv_dir" > /dev/null 2>&1; then
             ok "Venv created."
         elif "$PYTHON311" -m venv --without-pip "$_venv_dir" > /dev/null 2>&1; then
@@ -560,7 +586,7 @@ do_repair() {
             if "$_venv_py" -m ensurepip --upgrade 2>/dev/null; then
                 ok "pip bootstrapped."
             else
-                warn "ensurepip unavailable -- downloading get-pip.py ..."
+                warn "ensurepip unavailable; downloading get-pip.py ..."
                 local _getpip; _getpip="$(mktemp)"
                 if command -v curl > /dev/null 2>&1; then
                     curl -fsSL https://bootstrap.pypa.io/get-pip.py -o "$_getpip"
@@ -582,7 +608,7 @@ do_repair() {
             || die "pip install failed. Try: $_venv_py -m pip install aioesphomeapi"
         "$_venv_py" -m pip install --force-reinstall noiseprotocol --quiet \
             && ok "aioesphomeapi installed." \
-            || warn "noiseprotocol reinstall failed -- encryption may not work."
+            || warn "noiseprotocol reinstall failed; encryption may not work."
     else
         _upgrade_deps
     fi
@@ -596,6 +622,7 @@ do_repair() {
 
     _install_openclaw_skill
 
+    _show_config_info
     ok "Repair complete (v$NEW_VERSION)."
     echo
     exit 0
@@ -635,9 +662,9 @@ info "Using Python 3.11: $PYTHON311  ($($PYTHON311 --version 2>&1))"
 #    Falls back to a Python one-liner (~150ms) if neither is available.
 #    Cannot be installed without sudo; just warn so the user can act.
 if command -v socat >/dev/null 2>&1; then
-    ok "socat found -- CLI will use fast socket path (~10ms)."
+    ok "socat found; CLI will use fast socket path (~10ms)."
 elif command -v nc >/dev/null 2>&1; then
-    ok "nc found -- CLI will use fast socket path (~10ms)."
+    ok "nc found; CLI will use fast socket path (~10ms)."
 else
     warn "Neither socat nor nc found. CLI will fall back to Python one-liner (~150ms)."
     warn "For best performance, install socat: apt/dnf install socat"
@@ -692,9 +719,9 @@ if [[ -f "$INSTALL_LIB/esphome-lightsd.py" ]]; then
         && _SVC_FAILED=1 || true
 
     echo
-    info "Existing installation detected (v$_OLD_VER) -- source v$_NEW_VER"
+    info "Existing installation detected (v$_OLD_VER), source v$_NEW_VER"
     [[ $_SVC_FAILED -eq 1 ]] \
-        && warn "Service is in a failed state -- Repair is recommended."
+        && warn "Service is in a failed state. Repair is recommended."
 
     if [[ $FAST -eq 1 ]]; then
         info "Auto-upgrading existing installation (--fast mode) ..."
@@ -724,9 +751,9 @@ if [[ -f "$INSTALL_LIB/esphome-lightsd.py" ]]; then
         fi
 
         echo
-        echo "  [1] Upgrade  -- update scripts and packages, restart service"
-        echo "  [2] Repair   -- full reinstall of scripts, venv, and service"
-        echo "  [3] Fresh    -- run the full interactive installer"
+        echo "  [1] Upgrade:  update scripts and packages, restart service"
+        echo "  [2] Repair:   full reinstall of scripts, venv, and service"
+        echo "  [3] Fresh:    run the full interactive installer"
         echo "  [q] Cancel"
         echo
         read -rp "  Choice [$_default_choice]: " _ei_choice
@@ -736,7 +763,7 @@ if [[ -f "$INSTALL_LIB/esphome-lightsd.py" ]]; then
             2|r|repair)    do_repair  ;;
             3|f|fresh)     info "Continuing with full installer ..." ;;
             q|quit|cancel) info "Cancelled."; exit 0 ;;
-            *)             warn "Unrecognised choice -- defaulting to upgrade."; do_upgrade ;;
+            *)             warn "Unrecognised choice; defaulting to upgrade."; do_upgrade ;;
         esac
     fi
 fi

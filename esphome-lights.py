@@ -55,7 +55,7 @@ def send_command(request: dict, background: bool = False) -> dict | None:
     try:
         sock.connect(SOCKET_PATH)
     except (ConnectionRefusedError, OSError) as exc:
-        print(f"Error: cannot connect to daemon -- {exc}", file=sys.stderr)
+        print(f"Error: cannot connect to daemon: {exc}", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -83,7 +83,7 @@ def send_command(request: dict, background: bool = False) -> dict | None:
         print("Error: daemon did not respond within 5 seconds", file=sys.stderr)
         sys.exit(1)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        print(f"Error: invalid response from daemon -- {exc}", file=sys.stderr)
+        print(f"Error: invalid response from daemon: {exc}", file=sys.stderr)
         sys.exit(1)
     finally:
         sock.close()

@@ -319,15 +319,15 @@ The daemon includes an optional browser-based control UI, disabled by default.
 | Env Var | Default | Effect |
 |---|---|---|
 | `ESPHOME_LIGHTS_WEB_PORT` | `0` (disabled) | Set to a non-zero port to enable (e.g. `7890`) |
-| `ESPHOME_LIGHTS_WEB_BIND` | `127.0.0.1` | Bind address; use `0.0.0.0` to expose on the LAN |
+| `ESPHOME_LIGHTS_WEB_BIND` | `localhost` | `localhost`/`local`/`127.0.0.1` (local only) or `any`/`all`/`lan`/`0.0.0.0` (LAN) |
 
 ```bash
 # Enable the web interface on port 7890 (localhost only)
 export ESPHOME_LIGHTS_WEB_PORT=7890
 
-# Or expose on the LAN
+# Or expose on the LAN (use any/all/lan or 0.0.0.0)
 export ESPHOME_LIGHTS_WEB_PORT=7890
-export ESPHOME_LIGHTS_WEB_BIND=0.0.0.0
+export ESPHOME_LIGHTS_WEB_BIND=any
 ```
 
 Once enabled, open `http://127.0.0.1:7890/` in a browser.
@@ -355,8 +355,8 @@ All endpoints return JSON. Useful for scripting or custom integrations.
 | `POST` | `/api/reload` | Reload config without restarting |
 | `POST` | `/api/reconnect` | Force reconnect: `{"device": "living_room"}` |
 
-**Security note:** No authentication is provided. The default `127.0.0.1`
-binding restricts access to localhost. Setting `WEB_BIND=0.0.0.0` exposes
+**Security note:** No authentication is provided. The default `localhost`
+binding restricts access to the local machine. Setting `WEB_BIND=any` (or `lan`/`0.0.0.0`) exposes
 the UI on the LAN — use network-level access controls if you do this.
 
 To disable file logging:
