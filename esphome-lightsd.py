@@ -218,6 +218,69 @@ def load_devices():
 
 
 # ---------------------------------------------------------------------------
+# Light capability detection
+# ---------------------------------------------------------------------------
+
+
+def _detect_light_caps(entity) -> dict:
+    """Detect light capabilities from a LightInfo entity.
+
+    Supports both modern aioesphomeapi (``supported_color_modes`` bitmask set,
+    where each element is a union of ``LightColorCapability`` bits) and legacy
+    individual boolean fields (``supports_brightness``, etc.).
+
+    Returns a dict with keys: has_brightness, has_rgb, has_color_temp,
+    has_cwww, min_ct (Kelvin), max_ct (Kelvin).
+    """
+    caps: dict = {
+        "has_brightness": False,
+        "has_rgb": False,
+        "has_color_temp": False,
+        "has_cwww": False,
+        "min_ct": 2700,
+        "max_ct": 6500,
+    }
+
+    # Modern API: supported_color_modes is a set of LightColorCapability bitmasks.
+    # Union all mode bits — any capability bit present in any mode counts.
+    # LightColorCapability bit values: ON_OFF=1, BRIGHTNESS=2, WHITE=4,
+    #   COLOR_TEMPERATURE=8, COLD_WARM_WHITE=16, RGB=32.
+    modes = (
+        getattr(entity, "supported_color_modes", None)
+        or getattr(entity, "color_modes", None)
+    )
+    if modes:
+        combined = 0
+        for m in modes:
+            combined |= int(m)
+        caps["has_brightness"] = bool(combined & 2)
+        caps["has_color_temp"] = bool(combined & 8)
+        caps["has_cwww"]       = bool(combined & 16)
+        caps["has_rgb"]        = bool(combined & 32)
+    else:
+        # Legacy individual boolean fields (aioesphomeapi < v12)
+        caps["has_brightness"] = bool(getattr(entity, "supports_brightness", False))
+        caps["has_color_temp"] = bool(
+            getattr(entity, "supports_color_temperature", False)
+        )
+        caps["has_rgb"] = bool(
+            getattr(entity, "supports_rgb_color", False)
+            or getattr(entity, "supports_rgb", False)
+        )
+        caps["has_cwww"] = bool(getattr(entity, "supports_white_value", False))
+
+    # Colour temperature range: convert mireds to Kelvin (inverted relationship).
+    # min_mireds → coolest (highest Kelvin); max_mireds → warmest (lowest Kelvin).
+    min_m = getattr(entity, "min_mireds", 0) or 0
+    max_m = getattr(entity, "max_mireds", 0) or 0
+    if min_m > 0 and max_m > 0 and min_m < max_m:
+        caps["min_ct"] = round(1_000_000 / max_m)
+        caps["max_ct"] = round(1_000_000 / min_m)
+
+    return caps
+
+
+# ---------------------------------------------------------------------------
 # Device manager — persistent connections and state cache
 # ---------------------------------------------------------------------------
 
@@ -308,6 +371,7 @@ class DeviceManager:
         """
         control_key = None
         control_type = None
+        found_entity = None
 
         # Prefer LightInfo — supports brightness and RGB
         for entity in entities:
@@ -315,6 +379,7 @@ class DeviceManager:
             if cls == "LightInfo" and getattr(entity, "object_id", "") != "status_led":
                 control_key = entity.key
                 control_type = "light"
+                found_entity = entity
                 break
 
         if control_key is None:
@@ -325,7 +390,10 @@ class DeviceManager:
                     control_type = "switch"
                     break
 
-        self._entity_info[name] = {"key": control_key, "type": control_type}
+        info: dict = {"key": control_key, "type": control_type}
+        if control_type == "light" and found_entity is not None:
+            info.update(_detect_light_caps(found_entity))
+        self._entity_info[name] = info
 
     def _handle_state(self, name: str, state):
         """Cache incoming entity state updates."""
@@ -408,7 +476,7 @@ class DeviceManager:
     # -- command handling ----------------------------------------------------
 
     def handle_list(self) -> dict:
-        """Return configured devices with connection state and entity type."""
+        """Return configured devices with connection state, entity type, and capability flags."""
         result = {}
         for name, cfg in sorted(self._devices.items()):
             entity = self._entity_info.get(name, {})
@@ -417,19 +485,34 @@ class DeviceManager:
                 "port": cfg["port"],
                 "connection": self._conn_state.get(name, "unknown"),
                 "entity_type": entity.get("type"),
+                "has_brightness": entity.get("has_brightness", False),
+                "has_rgb": entity.get("has_rgb", False),
+                "has_color_temp": entity.get("has_color_temp", False),
+                "has_cwww": entity.get("has_cwww", False),
+                "min_ct": entity.get("min_ct", 2700),
+                "max_ct": entity.get("max_ct", 6500),
             }
         return {"ok": True, "result": result}
 
     def handle_status(self) -> dict:
-        """Return cached state for all devices."""
+        """Return cached state for all devices, including capability flags."""
         result = {}
         for name in sorted(self._devices):
             cached = self._state_cache.get(name)
             conn = self._conn_state.get(name, "unknown")
+            entity = self._entity_info.get(name, {})
+            caps = {
+                "has_brightness": entity.get("has_brightness", False),
+                "has_rgb": entity.get("has_rgb", False),
+                "has_color_temp": entity.get("has_color_temp", False),
+                "has_cwww": entity.get("has_cwww", False),
+                "min_ct": entity.get("min_ct", 2700),
+                "max_ct": entity.get("max_ct", 6500),
+            }
             if cached:
-                result[name] = {**cached, "connection": conn}
+                result[name] = {**cached, "connection": conn, **caps}
             else:
-                result[name] = {"state": "unknown", "connection": conn}
+                result[name] = {"state": "unknown", "connection": conn, **caps}
         return {"ok": True, "result": result}
 
     def handle_set(self, device: str, action: str, value: str | None = None) -> dict:
@@ -921,6 +1004,14 @@ function buildCard(name,st,info){
   const isOn=state==="ON";
   const isLight=entityType==="light";
   const disabled=conn!=="connected";
+  /* Capability flags — prefer status fields (populated after entity discovery);
+     fall back to list fields (populated from LightInfo on first connection). */
+  const hasBrightness = !!(st.has_brightness || (info && info.has_brightness));
+  const hasRgb        = !!(st.has_rgb        || (info && info.has_rgb));
+  const hasColorTemp  = !!(st.has_color_temp  || (info && info.has_color_temp));
+  const hasCwww       = !!(st.has_cwww        || (info && info.has_cwww));
+  const minCt = st.min_ct || (info && info.min_ct) || 2700;
+  const maxCt = st.max_ct || (info && info.max_ct) || 6500;
 
   const card=el("div","card state-"+state.toLowerCase());
   card.id="card-"+name;
@@ -938,12 +1029,14 @@ function buildCard(name,st,info){
   card.appendChild(tog);
 
   if(isLight){
-    /* Brightness slider */
-    if(st.brightness!=null){
+    /* Brightness slider — shown whenever the device supports brightness,
+       regardless of current on/off state. Defaults to 0 when state is null. */
+    if(hasBrightness){
+      var briVal=st.brightness!=null?st.brightness:0;
       const c=el("div","ctrl");
-      const lbl=el("label","","Brightness: "+st.brightness);
+      const lbl=el("label","","Brightness: "+briVal);
       const s=document.createElement("input");
-      s.type="range";s.min=0;s.max=255;s.value=st.brightness;s.disabled=disabled;
+      s.type="range";s.min=0;s.max=255;s.value=briVal;s.disabled=disabled;
       s.oninput=function(){
         lbl.textContent="Brightness: "+s.value;
         db(name+"-br",function(){sendAction(name,"brightness",s.value);});
@@ -951,10 +1044,14 @@ function buildCard(name,st,info){
       c.appendChild(lbl);c.appendChild(s);card.appendChild(c);
     }
 
-    /* RGB colour picker */
-    if(st.rgb!=null){
-      var parts=st.rgb.split(",").map(Number);
-      var hex="#"+parts.map(function(v){return v.toString(16).padStart(2,"0");}).join("");
+    /* RGB colour picker — shown when device supports RGB.
+       Defaults to white when no colour is cached. */
+    if(hasRgb){
+      var hex="#ffffff";
+      if(st.rgb!=null){
+        var parts=st.rgb.split(",").map(Number);
+        hex="#"+parts.map(function(v){return v.toString(16).padStart(2,"0");}).join("");
+      }
       const c=el("div","ctrl");
       c.appendChild(el("label","","Colour"));
       const p=document.createElement("input");
@@ -969,12 +1066,14 @@ function buildCard(name,st,info){
       c.appendChild(p);card.appendChild(c);
     }
 
-    /* Colour temperature slider */
-    if(st.color_temp!=null){
+    /* Colour temperature slider — shown when device supports colour temp.
+       Uses device-reported min/max range; defaults to midpoint when null. */
+    if(hasColorTemp){
+      var ctVal=st.color_temp!=null?st.color_temp:Math.round((minCt+maxCt)/2);
       const c=el("div","ctrl");
-      const lbl=el("label","","Colour Temp: "+st.color_temp+"K");
+      const lbl=el("label","","Colour Temp: "+ctVal+"K");
       const s=document.createElement("input");
-      s.type="range";s.min=2700;s.max=6500;s.value=st.color_temp;s.disabled=disabled;
+      s.type="range";s.min=minCt;s.max=maxCt;s.value=ctVal;s.disabled=disabled;
       s.oninput=function(){
         lbl.textContent="Colour Temp: "+s.value+"K";
         db(name+"-ct",function(){sendAction(name,"color_temp",s.value);});
@@ -982,8 +1081,9 @@ function buildCard(name,st,info){
       c.appendChild(lbl);c.appendChild(s);card.appendChild(c);
     }
 
-    /* Cold/warm white sliders */
-    if(st.cold_white!=null||st.warm_white!=null){
+    /* Cold/warm white sliders — shown when device supports CW/WW channels.
+       Both default to 0 when no state is cached. */
+    if(hasCwww){
       var cw=st.cold_white!=null?st.cold_white:0;
       var ww=st.warm_white!=null?st.warm_white:0;
       const cc=el("div","ctrl"),wc=el("div","ctrl");

@@ -52,13 +52,39 @@ def _make_manager(devices=None):
     return daemon.DeviceManager(devices)
 
 
-def _fake_light_entity(key=1, object_id="light"):
-    """Return a mock LightInfo entity."""
+def _fake_light_entity(
+    key=1,
+    object_id="light",
+    *,
+    supported_color_modes=None,
+    supports_brightness=True,
+    supports_rgb_color=True,
+    supports_color_temperature=False,
+    supports_white_value=False,
+    min_mireds=0,
+    max_mireds=0,
+):
+    """Return a mock LightInfo entity with explicit capability attributes.
+
+    Defaults to a brightness+RGB light with no colour-temp or CW/WW support,
+    which mirrors the most common smart-bulb configuration.
+    """
     entity = MagicMock()
     entity.__class__ = type("LightInfo", (), {})
     entity.__class__.__name__ = "LightInfo"
     entity.key = key
     entity.object_id = object_id
+    # Modern API capability bitmask (None triggers legacy path by default)
+    entity.supported_color_modes = supported_color_modes
+    entity.color_modes = None
+    # Legacy individual booleans — set both aliases used by _detect_light_caps
+    entity.supports_brightness = supports_brightness
+    entity.supports_rgb_color = supports_rgb_color
+    entity.supports_rgb = supports_rgb_color          # alias used in some versions
+    entity.supports_color_temperature = supports_color_temperature
+    entity.supports_white_value = supports_white_value
+    entity.min_mireds = min_mireds
+    entity.max_mireds = max_mireds
     return entity
 
 
@@ -199,6 +225,152 @@ class TestDeviceManagerStatus(unittest.TestCase):
         self.assertTrue(result["ok"])
         for name in result["result"]:
             self.assertEqual(result["result"][name]["state"], "unknown")
+
+    def test_status_includes_cap_fields(self):
+        """Capability flags from _entity_info are merged into the status response."""
+        mgr = _make_manager()
+        mgr._conn_state = {"living_room": "connected", "bedroom": "connected"}
+        mgr._entity_info = {
+            "living_room": {
+                "key": 1, "type": "light",
+                "has_brightness": True, "has_rgb": True,
+                "has_color_temp": False, "has_cwww": False,
+                "min_ct": 2700, "max_ct": 6500,
+            }
+        }
+        result = mgr.handle_status()
+        lr = result["result"]["living_room"]
+        self.assertTrue(lr["has_brightness"])
+        self.assertTrue(lr["has_rgb"])
+        self.assertFalse(lr["has_color_temp"])
+        # bedroom entity unknown — caps default to False
+        self.assertFalse(result["result"]["bedroom"]["has_brightness"])
+
+
+# ---------------------------------------------------------------------------
+# _detect_light_caps — capability detection from LightInfo
+# ---------------------------------------------------------------------------
+
+
+class TestDetectLightCaps(unittest.TestCase):
+    """Test the _detect_light_caps helper for modern and legacy aioesphomeapi."""
+
+    def test_legacy_brightness_and_rgb(self):
+        entity = _fake_light_entity(
+            supports_brightness=True, supports_rgb_color=True,
+            supports_color_temperature=False, supports_white_value=False,
+        )
+        caps = daemon._detect_light_caps(entity)
+        self.assertTrue(caps["has_brightness"])
+        self.assertTrue(caps["has_rgb"])
+        self.assertFalse(caps["has_color_temp"])
+        self.assertFalse(caps["has_cwww"])
+
+    def test_legacy_color_temperature(self):
+        entity = _fake_light_entity(
+            supports_brightness=True, supports_rgb_color=False,
+            supports_color_temperature=True, supports_white_value=False,
+            min_mireds=153, max_mireds=370,  # ~2700K–6535K
+        )
+        caps = daemon._detect_light_caps(entity)
+        self.assertTrue(caps["has_color_temp"])
+        self.assertFalse(caps["has_rgb"])
+        # min_mireds=153 → max_ct≈6535K; max_mireds=370 → min_ct≈2703K
+        self.assertGreater(caps["max_ct"], caps["min_ct"])
+
+    def test_legacy_cwww(self):
+        entity = _fake_light_entity(
+            supports_brightness=True, supports_rgb_color=False,
+            supports_color_temperature=False, supports_white_value=True,
+        )
+        caps = daemon._detect_light_caps(entity)
+        self.assertTrue(caps["has_cwww"])
+        self.assertFalse(caps["has_rgb"])
+
+    def test_modern_api_rgb_mode(self):
+        """Modern API: mode bitmask with BRIGHTNESS(2)|RGB(32) = 34."""
+        entity = _fake_light_entity(supported_color_modes={34})
+        caps = daemon._detect_light_caps(entity)
+        self.assertTrue(caps["has_brightness"])
+        self.assertTrue(caps["has_rgb"])
+        self.assertFalse(caps["has_color_temp"])
+        self.assertFalse(caps["has_cwww"])
+
+    def test_modern_api_color_temp_mode(self):
+        """Modern API: mode bitmask with BRIGHTNESS(2)|COLOR_TEMPERATURE(8) = 10."""
+        entity = _fake_light_entity(supported_color_modes={10})
+        caps = daemon._detect_light_caps(entity)
+        self.assertTrue(caps["has_brightness"])
+        self.assertTrue(caps["has_color_temp"])
+        self.assertFalse(caps["has_rgb"])
+
+    def test_modern_api_cwww_mode(self):
+        """Modern API: mode bitmask with COLD_WARM_WHITE(16) = 16."""
+        entity = _fake_light_entity(supported_color_modes={16})
+        caps = daemon._detect_light_caps(entity)
+        self.assertTrue(caps["has_cwww"])
+
+    def test_modern_api_multiple_modes(self):
+        """Modern API: device with RGB mode (34) and CT mode (10) — both in set."""
+        entity = _fake_light_entity(supported_color_modes={34, 10})
+        caps = daemon._detect_light_caps(entity)
+        self.assertTrue(caps["has_brightness"])
+        self.assertTrue(caps["has_rgb"])
+        self.assertTrue(caps["has_color_temp"])
+
+    def test_switch_entity_not_called(self):
+        """_detect_light_caps should return all-False for an entity with no flags."""
+        entity = _fake_light_entity(
+            supports_brightness=False, supports_rgb_color=False,
+            supports_color_temperature=False, supports_white_value=False,
+        )
+        caps = daemon._detect_light_caps(entity)
+        self.assertFalse(caps["has_brightness"])
+        self.assertFalse(caps["has_rgb"])
+        self.assertFalse(caps["has_color_temp"])
+        self.assertFalse(caps["has_cwww"])
+
+
+# ---------------------------------------------------------------------------
+# handle_list — capability fields included
+# ---------------------------------------------------------------------------
+
+
+class TestHandleListCapabilities(unittest.TestCase):
+    """Verify handle_list() includes capability fields from _entity_info."""
+
+    def test_list_includes_cap_fields_for_light(self):
+        mgr = _make_manager()
+        mgr._conn_state = {"living_room": "connected", "bedroom": "disconnected"}
+        mgr._entity_info = {
+            "living_room": {
+                "key": 1, "type": "light",
+                "has_brightness": True, "has_rgb": True,
+                "has_color_temp": True, "has_cwww": False,
+                "min_ct": 2700, "max_ct": 6500,
+            },
+            "bedroom": {"key": 2, "type": "switch"},
+        }
+        result = mgr.handle_list()
+        lr = result["result"]["living_room"]
+        self.assertTrue(lr["has_brightness"])
+        self.assertTrue(lr["has_rgb"])
+        self.assertTrue(lr["has_color_temp"])
+        self.assertFalse(lr["has_cwww"])
+        self.assertEqual(lr["min_ct"], 2700)
+        self.assertEqual(lr["max_ct"], 6500)
+        # Switch entity — caps should all be False (defaults)
+        br = result["result"]["bedroom"]
+        self.assertFalse(br["has_brightness"])
+
+    def test_list_defaults_when_entity_unknown(self):
+        mgr = _make_manager()
+        # No _entity_info entries set
+        result = mgr.handle_list()
+        for entry in result["result"].values():
+            self.assertFalse(entry["has_brightness"])
+            self.assertFalse(entry["has_rgb"])
+            self.assertEqual(entry["min_ct"], 2700)
 
 
 class TestDeviceManagerSet(unittest.TestCase):
