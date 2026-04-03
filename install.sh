@@ -633,7 +633,7 @@ do_repair() {
 # ---------------------------------------------------------------------------
 
 echo
-info "ESPHome Lights installer"
+info "ESPHome Lights installer (v$(cat "$INSTALL_LIB/VERSION" 2>/dev/null || echo "unknown"))"
 
 # 1. Refuse to run as root
 [[ $EUID -ne 0 ]] || die "Do not run this installer as root or with sudo."
@@ -753,7 +753,7 @@ if [[ -f "$INSTALL_LIB/esphome-lightsd.py" ]]; then
         echo
         echo "  [1] Upgrade:  update scripts and packages, restart service"
         echo "  [2] Repair:   full reinstall of scripts, venv, and service"
-        echo "  [3] Fresh:    run the full interactive installer"
+        echo "  [3] Fresh    -- run the full interactive installer"
         echo "  [q] Cancel"
         echo
         read -rp "  Choice [$_default_choice]: " _ei_choice
