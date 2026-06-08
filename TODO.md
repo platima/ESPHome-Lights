@@ -16,6 +16,19 @@ next session picks up from here.
 
 ## Completed
 
+### v0.5.3 — OpenClaw skill fix and CLI consistency
+
+- [x] Fix OpenClaw skill validation error "Missing: env:ESPHOME_LIGHTS_LOCATION".
+      Removed the hard `env` requirement and `primaryEnv` from `SKILL.md`
+      frontmatter; the literal `ESPHOME_LIGHTS_LOCATION` variable never exists
+      because devices use dynamic `ESPHOME_LIGHTS_<LOCATION>` naming. Device
+      validity is checked at runtime via `--list` instead.
+- [x] Code cleanup pass over all three scripts (daemon, Python CLI, shell
+      wrapper) — code confirmed clean and consistent.
+- [x] Fix `--device` error message in `esphome-lights.py` to include `--cwww`
+      and `--reconnect`, matching the shell wrapper.
+- [x] Add `--reconnect` to the `esphome-lights.py` docstring usage block.
+
 ### v0.5.0 — Built-in web interface
 
 - [x] Add `WebServer` class to `esphome-lightsd.py` — embedded async HTTP

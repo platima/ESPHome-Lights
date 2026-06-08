@@ -7,8 +7,11 @@ metadata:
     emoji: "💡"
     requires:
       bins: ["bash", "python3"]
-      env: ["ESPHOME_LIGHTS_LOCATION"]
-    primaryEnv: "ESPHOME_LIGHTS_LOCATION"
+      # Devices are configured via per-location variables of the form
+      # ESPHOME_LIGHTS_<LOCATION> (e.g. ESPHOME_LIGHTS_LIVING_ROOM). There is no
+      # single literal ESPHOME_LIGHTS_LOCATION variable, so no hard env
+      # requirement is declared here; device validity is checked at runtime via
+      # the `--list` command instead.
     files: ["esphome-lights", "esphome-lights.py", "esphome-lightsd.py"]
     user-invocable: true
 ---

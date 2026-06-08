@@ -15,6 +15,7 @@ Usage:
   esphome-lights.py --device <id|all> --rgb r,g,b        # Set RGB colour
   esphome-lights.py --device <id|all> --color-temp N     # Set colour temperature (Kelvin)
   esphome-lights.py --device <id|all> --cwww C,W         # Set cold/warm white (0-255 each)
+  esphome-lights.py --device <id|all> --reconnect        # Force immediate reconnect (skip backoff)
   esphome-lights.py --ping                               # Daemon health check
   esphome-lights.py --reload                             # Reload daemon config
 
@@ -259,7 +260,8 @@ def main():
             }
         else:
             print(
-                "Error: --device requires --on, --off, --brightness, --rgb, --color-temp, or --cwww",
+                "Error: --device requires --on, --off, --brightness, --rgb, "
+                "--color-temp, --cwww, or --reconnect",
                 file=sys.stderr,
             )
             sys.exit(1)
